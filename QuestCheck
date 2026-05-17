@@ -1,4 +1,63 @@
-       if World1 then
+return function()
+        RefreshSeaIndex()
+
+        -- GUARD: loga se as variaveis World estao inconsistentes com SeaIndex
+        -- Isso detecta o bug onde World1=true mas estamos no Sea 2/3
+        if (World1 and SeaIndex ~= 1) or (World2 and SeaIndex ~= 2) or (World3 and SeaIndex ~= 3) then
+            LogError("QuestCheck | INCONSISTENCIA World/SeaIndex! World1:", World1, "World2:", World2, "World3:", World3, "SeaIndex:", SeaIndex, "-> recalibrando")
+            World1 = SeaIndex == 1
+            World2 = SeaIndex == 2
+            World3 = SeaIndex == 3
+        end
+
+        -- Tenta multiplos caminhos para ler o level real do jogador
+        local Level = nil
+
+        -- Path 1: LocalPlayer.Data.Level (mais comum no Blox Fruits)
+        pcall(function()
+            local v = LocalPlayer.Data and LocalPlayer.Data:FindFirstChild("Level")
+            if v and v:IsA("ValueBase") then Level = tonumber(v.Value) end
+        end)
+
+        -- Path 2: LocalPlayer.Data.Stats.Level (versoes antigas)
+        if not Level or Level <= 1 then
+            pcall(function()
+                local v = LocalPlayer.Data and LocalPlayer.Data:FindFirstChild("Stats") and LocalPlayer.Data.Stats:FindFirstChild("Level")
+                if v and v:IsA("ValueBase") and tonumber(v.Value) > 1 then Level = tonumber(v.Value) end
+            end)
+        end
+
+        -- Path 3: ScriptStorage cache
+        if not Level or Level <= 1 then
+            local cached = tonumber(ScriptStorage.PlayerData and ScriptStorage.PlayerData.Level)
+            if cached and cached > 1 then Level = cached end
+        end
+
+        -- Path 4: busca em toda a pasta Data recursivamente
+        if not Level or Level <= 1 then
+            pcall(function()
+                local function FindLevelValue(folder)
+                    if not folder then return end
+                    for _, v in folder:GetChildren() do
+                        if v.Name == "Level" and v:IsA("ValueBase") and tonumber(v.Value) and tonumber(v.Value) > 1 then
+                            Level = tonumber(v.Value)
+                            return
+                        end
+                        if v:IsA("Folder") or v:IsA("Configuration") then
+                            FindLevelValue(v)
+                        end
+                    end
+                end
+                FindLevelValue(LocalPlayer:FindFirstChild("Data"))
+            end)
+        end
+
+        Level = Level or 1
+        local TeamSelf = LocalPlayer.Team and LocalPlayer.Team.Name or Config.Team
+
+        local Mon, Qname, Qdata, NameMon, PosM, PosQ
+
+        if World1 then
             if Level <= 9 then
                 if tostring(TeamSelf) == "Marines" then
                     Mon = "Trainee"
@@ -665,3 +724,14 @@
                 end
             end
         end
+
+        return {
+            Mon = Mon,
+            Qname = Qname,
+            Qdata = Qdata,
+            NameMon = NameMon or Mon,
+            PosM = PosM,
+            PosQ = PosQ
+        }
+    end
+
