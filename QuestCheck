@@ -448,14 +448,14 @@ return function()
                 Qdata = 1
                 Qname = "VenomCrewQuest"
                 NameMon = "Hydra Enforcer"
-                PosQ = CFrame.new(4620.61572265625,1002.2954711914062,399.0868835449219)
+                PosQ = CFrame.new(5214.33887, 1003.46802, 759.507019, 0.1826002, 0, 0.983187258, 0, 1, 0, -0.983187258, 0, 0.1826002)
                 PosM = PosQ
             elseif Level <= 1699 then
                 Mon = "Venomous Assailant"
                 Qdata = 2
                 Qname = "VenomCrewQuest"
                 NameMon = "Venomous Assailant"
-                PosQ = CFrame.new(4697.5918,1100.65137,946.401978,0.579397917,-4.19689783e-10,0.81504482,-1.49287818e-10,1,6.21053986e-10,-0.81504482,-4.81513662e-10,0.579397917)
+                PosQ = CFrame.new(5214.33887, 1003.46802, 759.507019, 0.1826002, 0, 0.983187258, 0, 1, 0, -0.983187258, 0, 0.1826002)
                 PosM = PosQ
             elseif Level <= 1724 then
                 Mon = "Marine Commodore"
