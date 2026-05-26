@@ -135,14 +135,14 @@ return function()
                 Qdata = 1
                 Qname = "MarineQuest2"
                 NameMon = "Chief Petty Officer"
-                PosQ = CFrame.new(-5039.58643,27.3500385,4324.68018,0,0,-1,0,1,0,1,0,0)
+                PosQ = CFrame.new(-4839.52979, 716.369019, -2619.44189, -0.237661242, 0, 0.971348047, 0, 1, 0, -0.971348047, 0, -0.237661242)
                 PosM = CFrame.new(-4881.23095703125,22.65204429626465,4273.75244140625)
             elseif Level <= 174 then
                 Mon = "Sky Bandit"
                 Qdata = 1
                 Qname = "SkyQuest"
                 NameMon = "Sky Bandit"
-                PosQ = CFrame.new(-4839.53027,716.368591,-2619.44165,0.866007268,0,0.500031412,0,1,0,-0.500031412,0,0.866007268)
+                PosQ = CFrame.new(-4839.52979, 716.369019, -2619.44189, -0.237661242, 0, 0.971348047, 0, 1, 0, -0.971348047, 0, -0.237661242)
                 PosM = CFrame.new(-4953.20703125,295.74420166015625,-2899.22900390625)
             elseif Level <= 189 then
                 Mon = "Dark Master"
