@@ -36,13 +36,12 @@ local function GuiParent()
     return ok and typeof(holder)=="Instance" and holder or Player:WaitForChild("PlayerGui")
 end
 
--- Lucide Icons (Creator Store asset). O carregamento Ã© opcional para manter
--- compatibilidade com executores que bloqueiam require/getObjects de assets.
-local LUCIDE_ASSET_ID=124767958438233
--- Mesmo modelo da Fluent: tabela local de assets Lucide jÃ¡ prontos para ImageLabel.
-local LucideAssets={
+-- Ícones locais: não usa require, GetObjects ou bibliotecas externas.
+local IconAssets={
     Home="rbxassetid://10723407389",
     ShoppingBag="rbxassetid://10734952273",
+    ShoppingCart="rbxassetid://10734952273",
+    FlaskConical="rbxassetid://10709775704",
     Settings="rbxassetid://10734950309",
     Minus="rbxassetid://10734896206",
     Maximize2="rbxassetid://10734886496",
@@ -50,59 +49,10 @@ local LucideAssets={
     Bell="rbxassetid://10709775704",
     ChevronDown="rbxassetid://10709790948",
 }
-local Lucide=nil
-local LucideRoot=nil
-pcall(function() Lucide=require(LUCIDE_ASSET_ID) end)
-if not Lucide then
-    pcall(function()
-        local imported=game:GetObjects("rbxassetid://"..LUCIDE_ASSET_ID)
-        local root=imported[1]
-        LucideRoot=root
-        local module=root and (root:IsA("ModuleScript") and root or root:FindFirstChildWhichIsA("ModuleScript",true))
-        if module then Lucide=require(module) end
-    end)
-end
-local function AddLucideIcon(parent,name,size,color,position)
-    local directAsset=LucideAssets[name]
-    if directAsset then
-        return New("ImageLabel",{BackgroundTransparency=1,Image=directAsset,ImageColor3=color,AnchorPoint=Vector2.new(.5,.5),Position=position or UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(size,size),ZIndex=(parent.ZIndex or 1)+1},parent)
-    end
-    if type(Lucide)~="table" and not LucideRoot then return nil end
-    if LucideRoot and type(Lucide)~="table" then
-        local lower=string.lower(name); local kebab=name:gsub("(%u)","-%1"):gsub("^-",""):lower()
-        local template=LucideRoot:FindFirstChild(name,true) or LucideRoot:FindFirstChild(lower,true) or LucideRoot:FindFirstChild(kebab,true)
-        if template and (template:IsA("ImageLabel") or template:IsA("ImageButton")) then
-            local icon=template:Clone(); icon.Parent=parent; icon.AnchorPoint=Vector2.new(.5,.5); icon.Position=position or UDim2.fromScale(.5,.5); icon.Size=UDim2.fromOffset(size,size); icon.ImageColor3=color; icon.ZIndex=(parent.ZIndex or 1)+1
-            return icon
-        elseif template and template:IsA("Decal") then
-            return New("ImageLabel",{BackgroundTransparency=1,Image=template.Texture,ImageColor3=color,AnchorPoint=Vector2.new(.5,.5),Position=position or UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(size,size),ZIndex=(parent.ZIndex or 1)+1},parent)
-        end
-        return nil
-    end
-    local lower=string.lower(name); local kebab=name:gsub("(%u)","-%1"):gsub("^-",""):lower()
-    local result=Lucide[name] or Lucide[lower] or Lucide[kebab]
-    if not result and type(Lucide.Icons)=="table" then result=Lucide.Icons[name] or Lucide.Icons[lower] or Lucide.Icons[kebab] end
-    if not result and type(Lucide.icons)=="table" then result=Lucide.icons[name] or Lucide.icons[lower] or Lucide.icons[kebab] end
-    if not result and type(Lucide.Assets)=="table" then result=Lucide.Assets[name] or Lucide.Assets[lower] or Lucide.Assets[kebab] end
-    for _,method in ipairs({"new","New","get","Get","Icon","icon"}) do
-        if not result and type(Lucide[method])=="function" then
-            local ok,value=pcall(Lucide[method],Lucide,name)
-            if not ok then ok,value=pcall(Lucide[method],name) end
-            if ok and value then result=value; break end
-        end
-    end
-    if type(result)=="table" then result=result.Image or result.ImageId or result.Asset or result.AssetId or result.Id end
-    if type(result)=="number" then result="rbxassetid://"..result end
-    if typeof(result)=="Instance" then
-        result.Parent=parent; result.AnchorPoint=Vector2.new(.5,.5); result.Position=position or UDim2.fromScale(.5,.5); result.Size=UDim2.fromOffset(size,size); result.ZIndex=(parent.ZIndex or 1)+1
-        if result:IsA("ImageLabel") then result.ImageColor3=color end
-        return result
-    end
-    if type(result)=="string" then
-        local image=New("ImageLabel",{BackgroundTransparency=1,Image=result,ImageColor3=color,AnchorPoint=Vector2.new(.5,.5),Position=position or UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(size,size),ZIndex=(parent.ZIndex or 1)+1},parent)
-        return image
-    end
-    return nil
+local function AddIcon(parent,name,size,color,position)
+    local asset=IconAssets[name]
+    if not asset then return nil end
+    return New("ImageLabel",{BackgroundTransparency=1,Image=asset,ImageColor3=color,AnchorPoint=Vector2.new(.5,.5),Position=position or UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(size,size),ZIndex=(parent.ZIndex or 1)+1},parent)
 end
 
 local AllanUI = {}
@@ -147,7 +97,7 @@ function AllanUI:CreateWindow(options)
     for index, symbol in ipairs({"-","[]","x"}) do
         local action=New("TextButton",{AutoButtonColor=false,BackgroundColor3=Theme.Inner,BorderSizePixel=0,Text="",TextColor3=Theme.Muted,Font=Enum.Font.GothamMedium,TextSize=14,AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,-16-(index-1)*40,.5),Size=UDim2.fromOffset(30,30)},header)
         headerActions[index]=action
-        AddLucideIcon(action,headerIconNames[index],14,Theme.Muted)
+        AddIcon(action,headerIconNames[index],14,Theme.Muted)
         Round(action,6); Stroke(action,.75)
         action.MouseEnter:Connect(function() Tween(action,.15,{BackgroundColor3=index==3 and Color3.fromRGB(90,42,62) or Color3.fromRGB(28,35,55)}) end)
         action.MouseLeave:Connect(function() Tween(action,.15,{BackgroundColor3=Theme.Inner}) end)
@@ -287,13 +237,13 @@ function AllanUI:CreateWindow(options)
         local heading=Text(card,"",16,Theme.Accent,true); heading.Size=UDim2.new(1,0,0,30)
         local headingText=Text(heading,pageOptions.CardTitle or name,16,Theme.Accent,true); headingText.Position=UDim2.fromOffset(38,0); headingText.Size=UDim2.new(1,-38,1,0)
         heading.LayoutOrder=-1000
-        if pageOptions.LucideIcon then
-            local titleIcon=AddLucideIcon(heading,pageOptions.LucideIcon,16,Theme.Accent,UDim2.fromOffset(10,13))
+        if pageOptions.IconName then
+            local titleIcon=AddIcon(heading,pageOptions.IconName,16,Theme.Accent,UDim2.fromOffset(10,13))
             if not titleIcon then headingText.Position=UDim2.fromOffset(0,0); headingText.Size=UDim2.fromScale(1,1) end
         end
         local nav=New("TextButton",{AutoButtonColor=false,BackgroundTransparency=1,BorderSizePixel=0,Text="",Size=UDim2.new(1,0,0,35)},navigation); Round(nav,6)
         local navText=Text(nav,name,12,Theme.Muted); navText.Position=UDim2.fromOffset(42,0); navText.Size=UDim2.new(1,-50,1,0)
-        if pageOptions.LucideIcon then AddLucideIcon(nav,pageOptions.LucideIcon,15,Theme.Muted,UDim2.fromOffset(20,17)) end
+        if pageOptions.IconName then AddIcon(nav,pageOptions.IconName,15,Theme.Muted,UDim2.fromOffset(20,17)) end
         local page={Card=card,Nav=nav,_order=0}
         function page:Select()
             if window.Active then
@@ -377,7 +327,7 @@ function AllanUI:CreateWindow(options)
             if multi then for _,value in ipairs(data.Default or {}) do selected[value]=true end else selected.value=data.Default or values[1] or "Select" end
             local button=New("TextButton",{AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(11,17,28),BorderSizePixel=0,Text="",AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,0,.5,0),Size=UDim2.new(.5,0,0,29),ZIndex=2},row); Round(button,6); Stroke(button,.75)
             local buttonText=Text(button,"",11,Theme.Muted); buttonText.TextXAlignment=Enum.TextXAlignment.Center; buttonText.Size=UDim2.new(1,-28,1,0); buttonText.ZIndex=3
-            local arrow=AddLucideIcon(button,"ChevronDown",14,Theme.Muted,UDim2.new(1,-14,.5,0))
+            local arrow=AddIcon(button,"ChevronDown",14,Theme.Muted,UDim2.new(1,-14,.5,0))
             if arrow then arrow.ZIndex=4 end
             local menu=New("Frame",{Visible=false,ZIndex=51,BackgroundColor3=Theme.Inner,BackgroundTransparency=1,BorderSizePixel=0,Size=UDim2.fromOffset(238,160)},dropdownLayer); Round(menu,7); Stroke(menu,.35)
             local menuScale=New("UIScale",{Scale=.92},menu)
@@ -489,7 +439,7 @@ do
             info = info or {}
             return self:AddPage(info.Title or "Tab", {
                 Icon = info.Icon,
-                LucideIcon = info.LucideIcon or info.Icon,
+                IconName = info.IconName or info.Icon,
                 CardTitle = info.Title or "Tab",
             })
         end
