@@ -1,150 +1,550 @@
--- AllanUI | Biblioteca universal Roblox
--- Uso: local AllanUI = loadstring(game:HttpGet("SUA_RAW_URL"))()
-
-local AllanUI = {}
 local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local Stats = game:GetService("Stats")
 local Player = Players.LocalPlayer or Players.PlayerAdded:Wait()
-
 local Theme = {
-    Background=Color3.fromRGB(8,12,20), Sidebar=Color3.fromRGB(9,13,22),
-    Card=Color3.fromRGB(14,18,30), Inner=Color3.fromRGB(18,24,40),
-    Stroke=Color3.fromRGB(45,55,80), Text=Color3.fromRGB(245,247,255),
-    Muted=Color3.fromRGB(170,180,200), Accent=Color3.fromRGB(140,100,255),
+    Background = Color3.fromRGB(8,12,20), Sidebar = Color3.fromRGB(9,13,22),
+    Card = Color3.fromRGB(14,18,30), Inner = Color3.fromRGB(18,24,40),
+    Stroke = Color3.fromRGB(45,55,80), Text = Color3.fromRGB(255,255,255),
+    Muted = Color3.fromRGB(170,180,200), Accent = Color3.fromRGB(140,100,255),
 }
-local Icons={Home="rbxassetid://10723407389",ShoppingBag="rbxassetid://10734952273",Settings="rbxassetid://10734950309",X="rbxassetid://10747384394",Minus="rbxassetid://10734896206",Maximize2="rbxassetid://10734886496",ChevronDown="rbxassetid://10709790948"}
-local function New(class,props,parent) local o=Instance.new(class); for k,v in pairs(props or {}) do o[k]=v end; o.Parent=parent; return o end
-local function Round(o,n) New("UICorner",{CornerRadius=UDim.new(0,n or 8)},o) end
-local function Stroke(o,t) New("UIStroke",{Color=Theme.Stroke,Transparency=t or .45},o) end
-local function Pad(o,n) New("UIPadding",{PaddingLeft=UDim.new(0,n),PaddingRight=UDim.new(0,n),PaddingTop=UDim.new(0,n),PaddingBottom=UDim.new(0,n)},o) end
-local function Label(parent,text,size,color,bold)
-    return New("TextLabel",{BackgroundTransparency=1,Text=text or "",TextColor3=color or Theme.Text,Font=bold and Enum.Font.GothamBold or Enum.Font.GothamMedium,TextSize=size or 12,TextXAlignment=Enum.TextXAlignment.Left,TextTruncate=Enum.TextTruncate.AtEnd,Size=UDim2.fromScale(1,1)},parent)
+local function New(class, properties, parent)
+    local object = Instance.new(class)
+    for key, value in pairs(properties or {}) do object[key] = value end
+    object.Parent = parent
+    return object
 end
-local function Icon(parent,name,size,position)
-    local image=Icons[name]; if not image then return end
-    return New("ImageLabel",{BackgroundTransparency=1,Image=image,ImageColor3=Theme.Muted,AnchorPoint=Vector2.new(.5,.5),Position=position or UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(size or 16,size or 16)},parent)
+local function Tween(object, duration, values)
+    local tween=TweenService:Create(object,TweenInfo.new(duration,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),values)
+    tween:Play()
+    return tween
 end
-local function ParentGui()
-    local ok,gui=pcall(function() return gethui and gethui() end)
-    return ok and typeof(gui)=="Instance" and gui or Player:WaitForChild("PlayerGui")
+local function TweenWithInfo(object, tweenInfo, values)
+    local tween=TweenService:Create(object,tweenInfo,values)
+    tween:Play()
+    return tween
 end
-local function Tween(o,t,p) TweenService:Create(o,TweenInfo.new(t,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),p):Play() end
+local function Round(object, radius) New("UICorner", {CornerRadius=UDim.new(0,radius)}, object) end
+local function Stroke(object, transparency) New("UIStroke", {Color=Theme.Stroke,Transparency=transparency or .5}, object) end
+local function Text(parent, value, size, color, bold)
+    return New("TextLabel", {BackgroundTransparency=1,Text=value,TextColor3=color or Theme.Text,Font=bold and Enum.Font.GothamBold or Enum.Font.GothamMedium,TextSize=size or 12,TextXAlignment=Enum.TextXAlignment.Left,Size=UDim2.fromScale(1,1)}, parent)
+end
+local function GuiParent()
+    local ok, holder = pcall(function() return gethui and gethui() end)
+    return ok and typeof(holder)=="Instance" and holder or Player:WaitForChild("PlayerGui")
+end
 
-function AllanUI:CreateWindow(options)
-    options=options or {}
-    local viewport=(workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1280,720)
-    local mobile=options.ForceMobile or (UserInputService.TouchEnabled and not options.ForceDesktop)
-    local size=options.Size or Vector2.new(1180,730)
-    if mobile then size=Vector2.new(math.min(viewport.X-24,850),math.min(viewport.Y-70,650)) end
-    local gui=New("ScreenGui",{Name="AllanUI",ResetOnSpawn=false,IgnoreGuiInset=true,ZIndexBehavior=Enum.ZIndexBehavior.Sibling},ParentGui())
-    pcall(function() gui.Parent=game:GetService("CoreGui") end)
-    local main=New("Frame",{BackgroundColor3=Theme.Background,BorderSizePixel=0,AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(size.X,size.Y),ClipsDescendants=true},gui); Round(main,14); Stroke(main,.15)
-    local window={Gui=gui,Main=main,Pages={},Premium=options.Premium==true,AllowPremiumToggle=options.AllowPremiumToggle~=false,Mobile=mobile}
-    local header=New("Frame",{BackgroundColor3=Theme.Sidebar,BorderSizePixel=0,Size=UDim2.new(1,0,0,62)},main)
-    local logo=New("TextLabel",{BackgroundColor3=Theme.Accent,Text=options.LogoText or "A",TextColor3=Theme.Text,Font=Enum.Font.GothamBold,TextSize=23,TextXAlignment=Enum.TextXAlignment.Center,Position=UDim2.fromOffset(14,12),Size=UDim2.fromOffset(38,38)},header); Round(logo,9)
-    local title=Label(header,options.Title or "Allan Hub",15,Theme.Text,true); title.Position=UDim2.fromOffset(63,10); title.Size=UDim2.new(1,-230,0,22)
-    local subtitle=Label(header,options.Subtitle or "by Allan",10,Theme.Muted); subtitle.Position=UDim2.fromOffset(63,31); subtitle.Size=UDim2.new(1,-230,0,16)
-    local function HeaderButton(icon,x,callback)
-        local b=New("TextButton",{BackgroundColor3=Theme.Inner,BorderSizePixel=0,Text="",AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,x,.5,0),Size=UDim2.fromOffset(34,34)},header); Round(b,7); Icon(b,icon,15); b.Activated:Connect(callback); return b
-    end
-    local maximized=false
-    HeaderButton("X",-14,function() gui:Destroy() end)
-    HeaderButton("Maximize2",-56,function()
-        maximized=not maximized
-        Tween(main,.2,{Size=maximized and UDim2.new(1,-24,1,-24) or UDim2.fromOffset(size.X,size.Y)})
+-- Lucide Icons (Creator Store asset). O carregamento Ã© opcional para manter
+-- compatibilidade com executores que bloqueiam require/getObjects de assets.
+local LUCIDE_ASSET_ID=124767958438233
+-- Mesmo modelo da Fluent: tabela local de assets Lucide jÃ¡ prontos para ImageLabel.
+local LucideAssets={
+    Home="rbxassetid://10723407389",
+    ShoppingBag="rbxassetid://10734952273",
+    Settings="rbxassetid://10734950309",
+    Minus="rbxassetid://10734896206",
+    Maximize2="rbxassetid://10734886496",
+    X="rbxassetid://10747384394",
+    Bell="rbxassetid://10709775704",
+    ChevronDown="rbxassetid://10709790948",
+}
+local Lucide=nil
+local LucideRoot=nil
+pcall(function() Lucide=require(LUCIDE_ASSET_ID) end)
+if not Lucide then
+    pcall(function()
+        local imported=game:GetObjects("rbxassetid://"..LUCIDE_ASSET_ID)
+        local root=imported[1]
+        LucideRoot=root
+        local module=root and (root:IsA("ModuleScript") and root or root:FindFirstChildWhichIsA("ModuleScript",true))
+        if module then Lucide=require(module) end
     end)
-    HeaderButton("Minus",-98,function() main.Visible=false end)
-    local reopen=New("TextButton",{Visible=false,BackgroundColor3=Theme.Accent,Text=options.LogoText or "A",TextColor3=Theme.Text,Font=Enum.Font.GothamBold,TextSize=20,Position=UDim2.new(0,18,1,-68),Size=UDim2.fromOffset(50,50)},gui); Round(reopen,12)
-    if mobile or options.ShowMobileToggle then reopen.Visible=true end
-    reopen.Activated:Connect(function() main.Visible=not main.Visible end)
-
-    local sidebar=New("Frame",{BackgroundColor3=Theme.Sidebar,BorderSizePixel=0,Position=UDim2.fromOffset(0,62),Size=UDim2.new(0,mobile and 126 or 224,1,-62)},main)
-    local tabs=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,Position=UDim2.fromOffset(10,12),Size=UDim2.new(1,-20,1,-24),CanvasSize=UDim2.fromScale(0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y},sidebar)
-    local list=New("UIListLayout",{Padding=UDim.new(0,5)},tabs)
-    local content=New("Frame",{BackgroundTransparency=1,Position=UDim2.new(0,mobile and 126 or 224,0,62),Size=UDim2.new(1,mobile and -126 or -224,1,-62)},main)
-    local function LayoutPages()
-        local active=nil; for _,page in ipairs(window.Pages) do if page.Active then active=page end end
-        local total=#window.Pages
-        for index,page in ipairs(window.Pages) do
-            page.Card.Visible=window.Premium or page==active
-            if window.Premium then
-                local width=1/math.max(total,1)
-                page.Card.Position=UDim2.new((index-1)*width,8,0,10)
-                page.Card.Size=UDim2.new(width,-16,1,-20)
-            else
-                page.Card.Position=UDim2.fromOffset(10,10); page.Card.Size=UDim2.new(1,-20,1,-20)
-            end
+end
+local function AddLucideIcon(parent,name,size,color,position)
+    local directAsset=LucideAssets[name]
+    if directAsset then
+        return New("ImageLabel",{BackgroundTransparency=1,Image=directAsset,ImageColor3=color,AnchorPoint=Vector2.new(.5,.5),Position=position or UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(size,size),ZIndex=(parent.ZIndex or 1)+1},parent)
+    end
+    if type(Lucide)~="table" and not LucideRoot then return nil end
+    if LucideRoot and type(Lucide)~="table" then
+        local lower=string.lower(name); local kebab=name:gsub("(%u)","-%1"):gsub("^-",""):lower()
+        local template=LucideRoot:FindFirstChild(name,true) or LucideRoot:FindFirstChild(lower,true) or LucideRoot:FindFirstChild(kebab,true)
+        if template and (template:IsA("ImageLabel") or template:IsA("ImageButton")) then
+            local icon=template:Clone(); icon.Parent=parent; icon.AnchorPoint=Vector2.new(.5,.5); icon.Position=position or UDim2.fromScale(.5,.5); icon.Size=UDim2.fromOffset(size,size); icon.ImageColor3=color; icon.ZIndex=(parent.ZIndex or 1)+1
+            return icon
+        elseif template and template:IsA("Decal") then
+            return New("ImageLabel",{BackgroundTransparency=1,Image=template.Texture,ImageColor3=color,AnchorPoint=Vector2.new(.5,.5),Position=position or UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(size,size),ZIndex=(parent.ZIndex or 1)+1},parent)
+        end
+        return nil
+    end
+    local lower=string.lower(name); local kebab=name:gsub("(%u)","-%1"):gsub("^-",""):lower()
+    local result=Lucide[name] or Lucide[lower] or Lucide[kebab]
+    if not result and type(Lucide.Icons)=="table" then result=Lucide.Icons[name] or Lucide.Icons[lower] or Lucide.Icons[kebab] end
+    if not result and type(Lucide.icons)=="table" then result=Lucide.icons[name] or Lucide.icons[lower] or Lucide.icons[kebab] end
+    if not result and type(Lucide.Assets)=="table" then result=Lucide.Assets[name] or Lucide.Assets[lower] or Lucide.Assets[kebab] end
+    for _,method in ipairs({"new","New","get","Get","Icon","icon"}) do
+        if not result and type(Lucide[method])=="function" then
+            local ok,value=pcall(Lucide[method],Lucide,name)
+            if not ok then ok,value=pcall(Lucide[method],name) end
+            if ok and value then result=value; break end
         end
     end
-    function window:SetPremium(value) self.Premium=value==true; LayoutPages() end
-    function window:SelectTab(target)
-        for _,page in ipairs(self.Pages) do page.Active=page==target; page.Tab.BackgroundColor3=page.Active and Color3.fromRGB(58,43,116) or Theme.Sidebar end
-        LayoutPages()
+    if type(result)=="table" then result=result.Image or result.ImageId or result.Asset or result.AssetId or result.Id end
+    if type(result)=="number" then result="rbxassetid://"..result end
+    if typeof(result)=="Instance" then
+        result.Parent=parent; result.AnchorPoint=Vector2.new(.5,.5); result.Position=position or UDim2.fromScale(.5,.5); result.Size=UDim2.fromOffset(size,size); result.ZIndex=(parent.ZIndex or 1)+1
+        if result:IsA("ImageLabel") then result.ImageColor3=color end
+        return result
     end
+    if type(result)=="string" then
+        local image=New("ImageLabel",{BackgroundTransparency=1,Image=result,ImageColor3=color,AnchorPoint=Vector2.new(.5,.5),Position=position or UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(size,size),ZIndex=(parent.ZIndex or 1)+1},parent)
+        return image
+    end
+    return nil
+end
+
+local AllanUI = {}
+function AllanUI:GetJobId()
+    return game.JobId
+end
+function AllanUI:CreateWindow(options)
+    options = options or {}
+    local viewport=(workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1280,720)
+    local touchDevice=UserInputService.TouchEnabled and options.ForceDesktop~=true
+    local mobileMode=options.ForceMobile==true or (touchDevice and viewport.X<900)
+    local compactTouchWindow=touchDevice
+    local requestedSize=options.Size or Vector2.new(1180,730)
+    local windowWidth=compactTouchWindow and math.clamp(viewport.X-80,300,mobileMode and 560 or 1180) or requestedSize.X
+    local windowHeight=compactTouchWindow and math.clamp(viewport.Y-160,300,590) or requestedSize.Y
+    local sidebarWidth=mobileMode and 130 or 220
+    local contentX=sidebarWidth+20
+    local contentRight=18
+    local gui = New("ScreenGui", {Name="ALLAN_UI",ResetOnSpawn=false,ZIndexBehavior=Enum.ZIndexBehavior.Sibling}, GuiParent())
+    local main = New("Frame", {AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(windowWidth,windowHeight),BackgroundColor3=Theme.Background,BorderSizePixel=0,ClipsDescendants=true},gui)
+    Round(main,12); Stroke(main,.35)
+    local sidebar = New("Frame", {BackgroundColor3=Theme.Sidebar,BorderSizePixel=0,Size=UDim2.new(0,sidebarWidth,1,0)},main)
+    New("Frame",{BackgroundColor3=Theme.Stroke,BackgroundTransparency=.45,BorderSizePixel=0,Position=UDim2.new(1,-1,0,0),Size=UDim2.new(0,1,1,0)},sidebar)
+    local logo=New("TextLabel",{BackgroundColor3=Theme.Accent,BorderSizePixel=0,Text="A",TextColor3=Theme.Text,Font=Enum.Font.GothamBold,TextSize=22,Position=UDim2.fromOffset(18,16),Size=UDim2.fromOffset(34,34)},sidebar); Round(logo,8)
+    local title=Text(sidebar,options.Title or "Allan Hub",15,Theme.Text,true); title.Position=UDim2.fromOffset(62,13); title.Size=UDim2.new(1,-78,0,20)
+    local subtitle=Text(sidebar,options.Subtitle or "by Allan",10,Theme.Muted); subtitle.Position=UDim2.fromOffset(62,32); subtitle.Size=UDim2.new(1,-78,0,16)
+    local badge=New("TextLabel",{BackgroundColor3=Color3.fromRGB(66,58,140),BorderSizePixel=0,Text="Premium",TextColor3=Theme.Text,Font=Enum.Font.GothamBold,TextSize=9,Position=UDim2.fromOffset(160,18),Size=UDim2.fromOffset(48,17)},sidebar); Round(badge,4)
+    if mobileMode then title.TextTruncate=Enum.TextTruncate.AtEnd; badge.Visible=false end
+    local navigation=New("Frame",{BackgroundTransparency=1,Position=UDim2.fromOffset(10,76),Size=UDim2.new(1,-20,1,-154)},sidebar)
+    New("UIListLayout",{Padding=UDim.new(0,4)},navigation)
+    local userCard=New("Frame",{BackgroundColor3=Theme.Inner,BorderSizePixel=0,Position=UDim2.new(0,10,1,-68),Size=UDim2.new(1,-20,0,56)},sidebar); Round(userCard,7); Stroke(userCard,.72)
+    local avatar=New("ImageLabel",{BackgroundColor3=Color3.fromRGB(54,63,82),BorderSizePixel=0,Image="rbxthumb://type=AvatarHeadShot&id="..Player.UserId.."&w=100&h=100",Position=UDim2.fromOffset(9,9),Size=UDim2.fromOffset(38,38)},userCard); Round(avatar,99)
+    local userName=Text(userCard,Player.DisplayName,11,Theme.Text,true); userName.Position=UDim2.fromOffset(56,9); userName.Size=UDim2.new(1,-76,0,17)
+    local userStatus=Text(userCard,"Executor: Online",9,Theme.Muted); userStatus.Position=UDim2.fromOffset(56,27); userStatus.Size=UDim2.new(1,-76,0,15)
+    local online=New("Frame",{BackgroundColor3=Color3.fromRGB(48,210,126),BorderSizePixel=0,Position=UDim2.new(1,-15,.5,-3),Size=UDim2.fromOffset(6,6)},userCard); Round(online,99)
+    -- Camada superior do dashboard: header, status e notificaÃ§Ãµes.
+    local header=New("Frame",{BackgroundTransparency=1,Position=UDim2.fromOffset(sidebarWidth,0),Size=UDim2.new(1,-sidebarWidth,0,58)},main)
+    local headerTitle=Text(header,"Dashboard",15,Theme.Text,true); headerTitle.Position=UDim2.fromOffset(20,0); headerTitle.Size=UDim2.new(.5,0,1,0)
+    if mobileMode then headerTitle.Visible=false end
+    local headerActions={}
+    local headerIconNames={"Minus","Maximize2","X"}
+    for index, symbol in ipairs({"-","[]","x"}) do
+        local action=New("TextButton",{AutoButtonColor=false,BackgroundColor3=Theme.Inner,BorderSizePixel=0,Text="",TextColor3=Theme.Muted,Font=Enum.Font.GothamMedium,TextSize=14,AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,-16-(index-1)*40,.5),Size=UDim2.fromOffset(30,30)},header)
+        headerActions[index]=action
+        AddLucideIcon(action,headerIconNames[index],14,Theme.Muted)
+        Round(action,6); Stroke(action,.75)
+        action.MouseEnter:Connect(function() Tween(action,.15,{BackgroundColor3=index==3 and Color3.fromRGB(90,42,62) or Color3.fromRGB(28,35,55)}) end)
+        action.MouseLeave:Connect(function() Tween(action,.15,{BackgroundColor3=Theme.Inner}) end)
+        if index==3 then action.MouseButton1Click:Connect(function() gui:Destroy() end) end
+    end
+    local status=New("Frame",{BackgroundColor3=Theme.Card,BorderSizePixel=0,Position=UDim2.fromOffset(contentX,66),Size=UDim2.new(1,-(contentX+contentRight),0,64)},main); Round(status,9); Stroke(status,.58)
+    local st=Text(status,"SYSTEM STATUS",10,Theme.Accent,true); st.Position=UDim2.fromOffset(12,4); st.Size=UDim2.new(1,-24,0,16)
+    local statusValues={}
+    for index, metric in ipairs({{"FPS","--"},{"PING","-- ms"},{"PLAYERS","-- / --"},{"SERVER","Loading"}}) do
+        local box=New("Frame",{BackgroundColor3=Theme.Inner,BorderSizePixel=0,Position=UDim2.new((index-1)/4,7,.5,-3),Size=UDim2.new(.25,-11,0,30)},status); Round(box,5)
+        local name=Text(box,metric[1],8,Theme.Muted); name.Position=UDim2.fromOffset(7,1); name.Size=UDim2.new(1,-14,0,11)
+        local value=Text(box,metric[2],11,Theme.Text,true); value.Position=UDim2.fromOffset(7,12); value.Size=UDim2.new(1,-14,0,15)
+        statusValues[metric[1]]=value
+    end
+    local frameCount=0; local frameStarted=os.clock()
+    RunService.RenderStepped:Connect(function() frameCount=frameCount+1 end)
+    -- JobId sÃ³ muda ao entrar em outro servidor: lÃª uma vez e reutiliza.
+    local cachedServerName=(game.JobId~="" and "JOB "..game.JobId:sub(1,8)) or "LOCAL"
+    local pingStat=nil
+    local function readPing()
+        if not pingStat then
+            local ok,found=pcall(function()
+                local network=Stats:FindFirstChild("Network")
+                local serverStats=network and network:FindFirstChild("ServerStatsItem")
+                if not serverStats then return nil end
+                return serverStats:FindFirstChild("Data Ping") or serverStats:FindFirstChild("Ping")
+                    or (function()
+                        for _,item in ipairs(serverStats:GetChildren()) do
+                            if string.find(string.lower(item.Name),"ping",1,true) then return item end
+                        end
+                    end)()
+            end)
+            if ok then pingStat=found end
+        end
+        if not pingStat then return "-- ms" end
+        local okNumber,number=pcall(function() return pingStat:GetValue() end)
+        if okNumber and type(number)=="number" then return tostring(math.floor(number+0.5)).." ms" end
+        local okText,text=pcall(function() return pingStat:GetValueString() end)
+        if okText and text and text~="" then return text end
+        return "-- ms"
+    end
+    task.spawn(function()
+        while gui.Parent do
+            local now=os.clock(); local elapsed=now-frameStarted
+            if elapsed>=1 then
+                statusValues.FPS.Text=tostring(math.floor(frameCount/elapsed+0.5))
+                frameCount=0; frameStarted=now
+            end
+            statusValues.PING.Text=readPing()
+            statusValues.PLAYERS.Text=tostring(#Players:GetPlayers()).." / "..tostring(Players.MaxPlayers)
+            statusValues.SERVER.Text=cachedServerName
+            task.wait(.5)
+        end
+    end)
+    local footer=New("Frame",{BackgroundColor3=Color3.fromRGB(10,15,25),BorderSizePixel=0,Position=UDim2.new(0,sidebarWidth,1,-34),Size=UDim2.new(1,-sidebarWidth,0,34)},main)
+    local footerText=Text(footer,"Time: --:--:--       Date: --/--/----       Version: 1.0.0",10,Theme.Muted); footerText.Position=UDim2.fromOffset(18,0); footerText.Size=UDim2.new(1,-36,1,0)
+    task.spawn(function() while gui.Parent do footerText.Text="Time: "..os.date("%H:%M:%S").."       Date: "..os.date("%d/%m/%Y").."       Version: 1.0.0"; task.wait(1) end end)
+    local content=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,Position=UDim2.fromOffset(contentX,142),Size=UDim2.new(1,-(contentX+contentRight),1,-184),CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=mobileMode and 4 or 0,ScrollBarImageColor3=Theme.Accent},main)
+    local premium=options.Premium ~= false
+    local dashboardLayout=premium
+    local cardGrid=New("UIGridLayout",{CellPadding=mobileMode and UDim2.fromOffset(0,12) or UDim2.fromOffset(12,0),CellSize=mobileMode and UDim2.new(1,0,0,430) or UDim2.new(1/3,-8,1,0),FillDirectionMaxCells=mobileMode and 1 or 3,SortOrder=Enum.SortOrder.LayoutOrder},content)
+    if not dashboardLayout then cardGrid.Parent=nil end
+    local dropdownLayer=New("Frame",{Name="DropdownLayer",BackgroundTransparency=1,BorderSizePixel=0,Active=false,ZIndex=50,Size=UDim2.fromScale(1,1)},main)
+    local notifications=New("Frame",{BackgroundTransparency=1,AnchorPoint=Vector2.new(1,0),Position=UDim2.new(1,-15,0,15),Size=UDim2.fromOffset(300,300)},gui)
+    New("UIListLayout",{Padding=UDim.new(0,8)},notifications)
+    local window={Gui=gui,Main=main,Pages={},Active=nil,Premium=premium,DashboardLayout=dashboardLayout,Mobile=mobileMode,AllowPremiumToggle=options.AllowPremiumToggle~=false}
+    function window:GetJobId()
+        return game.JobId
+    end
+    local defaultSize=main.Size; local defaultPosition=main.Position
+    local mobileVisible=options.ShowMobileToggle==true or UserInputService.TouchEnabled
+    local mobileToggle=New("ImageButton",{Name="AllanUIMobileToggle",AutoButtonColor=false,Visible=false,BackgroundColor3=Theme.Accent,BorderSizePixel=0,Image=options.MobileToggleImage or "",AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-20,1,-100),Size=UDim2.fromOffset(52,52),ZIndex=100},gui)
+    Round(mobileToggle,14); Stroke(mobileToggle,.25)
+    local mobileFallback=Text(mobileToggle,"A",22,Theme.Text,true); mobileFallback.TextXAlignment=Enum.TextXAlignment.Center; mobileFallback.ZIndex=101; mobileFallback.Visible=(mobileToggle.Image=="")
     function window:Notify(data)
-        data=data or {}; local note=New("Frame",{BackgroundColor3=Theme.Card,BorderSizePixel=0,AnchorPoint=Vector2.new(1,1),Position=UDim2.new(1,-14,1,-14),Size=UDim2.fromOffset(270,64),ZIndex=20},gui); Round(note,9); Stroke(note,.3)
-        local a=Label(note,data.Title or "Notification",12,Theme.Accent,true); a.Position=UDim2.fromOffset(12,8); a.Size=UDim2.new(1,-24,0,18)
-        local b=Label(note,data.Content or "",11,Theme.Muted); b.Position=UDim2.fromOffset(12,28); b.Size=UDim2.new(1,-24,0,26)
-        task.delay(data.Duration or 3,function() if note.Parent then Tween(note,.18,{BackgroundTransparency=1}); task.wait(.2); note:Destroy() end end)
+        local note=New("Frame",{BackgroundColor3=Theme.Inner,BorderSizePixel=0,Size=UDim2.fromOffset(300,58)},notifications); Round(note,8); Stroke(note,.45)
+        local nt=Text(note,data.Title or "Notification",12,Theme.Text,true); nt.Position=UDim2.fromOffset(12,7); nt.Size=UDim2.new(1,-24,0,17)
+        local nb=Text(note,data.Content or "",10,Theme.Muted); nb.Position=UDim2.fromOffset(12,25); nb.Size=UDim2.new(1,-24,0,25); nb.TextWrapped=true
+        task.delay(data.Duration or 4,function() if note.Parent then Tween(note,.2,{BackgroundTransparency=1}); task.wait(.22); note:Destroy() end end)
     end
     function window:Destroy() gui:Destroy() end
-    function window:AddTab(info)
-        info=info or {}; local page={Window=window,Active=false,Order=0}
-        local tab=New("TextButton",{BackgroundColor3=Theme.Sidebar,BorderSizePixel=0,Text="",Size=UDim2.new(1,0,0,38)},tabs); Round(tab,7); page.Tab=tab
-        Icon(tab,info.LucideIcon or info.Icon,15,UDim2.fromOffset(16,19)); local tabText=Label(tab,info.Title or "Tab",11,Theme.Muted); tabText.Position=UDim2.fromOffset(31,0); tabText.Size=UDim2.new(1,-38,1,0)
-        local card=New("Frame",{BackgroundColor3=Theme.Card,BorderSizePixel=0,ClipsDescendants=true},content); Round(card,10); Stroke(card,.45); page.Card=card
-        local scroll=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,Position=UDim2.fromOffset(10,10),Size=UDim2.new(1,-20,1,-20),CanvasSize=UDim2.fromScale(0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y},card); Pad(scroll,4); page.Scroll=scroll
-        New("UIListLayout",{Padding=UDim.new(0,7),SortOrder=Enum.SortOrder.LayoutOrder},scroll)
-        function page:_Row(name,description)
-            self.Order=self.Order+1; local row=New("Frame",{BackgroundColor3=Theme.Inner,BorderSizePixel=0,LayoutOrder=self.Order,Size=UDim2.new(1,0,0,description and 57 or 43)},scroll); Round(row,7)
-            local a=Label(row,name or "Control",11,Theme.Text,false); a.Position=UDim2.fromOffset(10,description and 8 or 0); a.Size=UDim2.new(.56,0,0,23)
-            if description then local d=Label(row,description,9,Theme.Muted); d.Position=UDim2.fromOffset(10,27); d.Size=UDim2.new(.56,0,0,18) end
+    function window:Minimize()
+        if self.Minimized then
+            self.Minimized=false; main.Visible=true; mobileToggle.Visible=false
+        else
+            self.Minimized=true; main.Visible=false; mobileToggle.Visible=mobileVisible
+        end
+    end
+    function window:ToggleMaximize()
+        if self.Maximized then
+            self.Maximized=false
+            Tween(main,.25,{Size=defaultSize,Position=defaultPosition})
+        else
+            local camera=workspace.CurrentCamera
+            if not camera then return end
+            self.Maximized=true
+            local viewport=camera.ViewportSize
+            local margin=mobileMode and 0 or 32
+            Tween(main,.25,{Size=UDim2.fromOffset(viewport.X-margin,viewport.Y-margin),Position=UDim2.fromOffset(viewport.X/2,viewport.Y/2)})
+        end
+    end
+    mobileToggle.MouseButton1Click:Connect(function() window:Minimize() end)
+    headerActions[1].MouseButton1Click:Connect(function() window:Minimize() end)
+    headerActions[2].MouseButton1Click:Connect(function() window:ToggleMaximize() end)
+    UserInputService.InputBegan:Connect(function(input,processed)
+        if not processed and not UserInputService:GetFocusedTextBox() and (input.KeyCode==Enum.KeyCode.LeftControl or input.KeyCode==Enum.KeyCode.RightControl) then
+            window:Minimize()
+        end
+    end)
+    function window:SetPremium(enabled)
+        enabled=enabled==true
+        if self.Premium==enabled then return end
+        self.Premium=enabled
+        self.DashboardLayout=enabled
+        if self.DashboardLayout then
+            cardGrid.Parent=content
+            for _,page in ipairs(self.Pages) do page.Card.Visible=true end
+        else
+            cardGrid.Parent=nil
+            for _,page in ipairs(self.Pages) do
+                page.Card.Position=UDim2.fromScale(0,0); page.Card.Size=UDim2.fromScale(1,1)
+                page.Card.Visible=(page==self.Active)
+            end
+        end
+    end
+    if compactTouchWindow and workspace.CurrentCamera then
+        workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+            local size=workspace.CurrentCamera.ViewportSize
+            Tween(main,.2,{Size=UDim2.fromOffset(math.clamp(size.X-80,300,mobileMode and 560 or 1180),math.clamp(size.Y-160,300,590))})
+        end)
+    end
+    function window:AddPage(name, pageOptions)
+        pageOptions=pageOptions or {}
+        local card=New("ScrollingFrame",{Visible=dashboardLayout,BackgroundColor3=Theme.Card,BorderSizePixel=0,CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=3,ScrollBarImageColor3=Theme.Accent,Size=UDim2.fromScale(1,1)},content)
+        Round(card,10); Stroke(card,.55); New("UIPadding",{PaddingLeft=UDim.new(0,16),PaddingRight=UDim.new(0,16),PaddingTop=UDim.new(0,15),PaddingBottom=UDim.new(0,15)},card)
+        New("UIListLayout",{Padding=UDim.new(0,9),SortOrder=Enum.SortOrder.LayoutOrder},card)
+        local heading=Text(card,"",16,Theme.Accent,true); heading.Size=UDim2.new(1,0,0,30)
+        local headingText=Text(heading,pageOptions.CardTitle or name,16,Theme.Accent,true); headingText.Position=UDim2.fromOffset(38,0); headingText.Size=UDim2.new(1,-38,1,0)
+        heading.LayoutOrder=-1000
+        if pageOptions.LucideIcon then
+            local titleIcon=AddLucideIcon(heading,pageOptions.LucideIcon,16,Theme.Accent,UDim2.fromOffset(10,13))
+            if not titleIcon then headingText.Position=UDim2.fromOffset(0,0); headingText.Size=UDim2.fromScale(1,1) end
+        end
+        local nav=New("TextButton",{AutoButtonColor=false,BackgroundTransparency=1,BorderSizePixel=0,Text="",Size=UDim2.new(1,0,0,35)},navigation); Round(nav,6)
+        local navText=Text(nav,name,12,Theme.Muted); navText.Position=UDim2.fromOffset(42,0); navText.Size=UDim2.new(1,-50,1,0)
+        if pageOptions.LucideIcon then AddLucideIcon(nav,pageOptions.LucideIcon,15,Theme.Muted,UDim2.fromOffset(20,17)) end
+        local page={Card=card,Nav=nav,_order=0}
+        function page:Select()
+            if window.Active then
+                Tween(window.Active.Nav,.15,{BackgroundTransparency=1})
+                if not window.DashboardLayout then window.Active.Card.Visible=false end
+            end
+            window.Active=page; card.Visible=true; Tween(nav,.18,{BackgroundColor3=Color3.fromRGB(58,45,111),BackgroundTransparency=.12}); navText.TextColor3=Color3.fromRGB(215,205,255)
+            if mobileMode and window.DashboardLayout then
+                task.defer(function()
+                    content.CanvasPosition=Vector2.new(0,math.max(0,card.AbsolutePosition.Y-content.AbsolutePosition.Y))
+                end)
+            end
+        end
+        nav.MouseButton1Click:Connect(page.Select)
+        function page:_Row(rowTitle)
+            local row=New("Frame",{BackgroundColor3=Theme.Inner,BackgroundTransparency=.56,BorderSizePixel=0,Size=UDim2.new(1,0,0,38)},card)
+            self._order=self._order+1; row.LayoutOrder=self._order
+            Round(row,6); Stroke(row,.86)
+            local accent=New("Frame",{Name="RowAccent",BackgroundColor3=Theme.Accent,BackgroundTransparency=.82,BorderSizePixel=0,Position=UDim2.fromOffset(0,7),Size=UDim2.new(0,3,1,-14)},row); Round(accent,3)
+            local rowText=Text(row,rowTitle,12,Color3.fromRGB(212,218,232),false); rowText.Position=UDim2.fromOffset(12,0); rowText.Size=UDim2.new(.57,-12,1,0)
+            row.MouseEnter:Connect(function() Tween(row,.14,{BackgroundTransparency=.25}); Tween(accent,.14,{BackgroundTransparency=.22}) end)
+            row.MouseLeave:Connect(function() Tween(row,.18,{BackgroundTransparency=.56}); Tween(accent,.18,{BackgroundTransparency=row:GetAttribute("Active") and .1 or .82}) end)
             return row
         end
-        function page:AddSection(name)
-            self.Order=self.Order+1; local label=Label(scroll,name,12,Theme.Accent,true); label.LayoutOrder=self.Order; label.Size=UDim2.new(1,0,0,24); return label
-        end
         function page:AddToggle(data)
-            data=data or {}; local row=self:_Row(data.Title,data.Description); local value=data.Default==true; local listeners={}
-            local toggle=New("TextButton",{BackgroundColor3=value and Theme.Accent or Color3.fromRGB(31,42,62),BorderSizePixel=0,Text="",AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,-10,.5,0),Size=UDim2.fromOffset(38,21)},row); Round(toggle,20)
-            local knob=New("Frame",{BackgroundColor3=Theme.Text,BorderSizePixel=0,AnchorPoint=Vector2.new(.5,.5),Position=UDim2.new(value and 1 or 0,value and -10 or 10,.5,0),Size=UDim2.fromOffset(15,15)},toggle); Round(knob,20)
+            local row=self:_Row(data.Title or "Toggle"); local state=data.Default==true; local listeners={}; local animating=false
+            local rowAccent=row:FindFirstChild("RowAccent")
+            row:SetAttribute("Active",state)
+            if rowAccent then rowAccent.BackgroundTransparency=state and .1 or .82 end
+            local offColor=Color3.fromRGB(29,38,55)
+            local toggle=New("TextButton",{AutoButtonColor=false,BackgroundColor3=state and Theme.Accent or offColor,BorderSizePixel=0,Text="",AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,0,.5,0),Size=UDim2.fromOffset(38,22),ZIndex=2},row); Round(toggle,99)
+            local glow=New("Frame",{BackgroundColor3=Theme.Accent,BackgroundTransparency=state and .72 or 1,BorderSizePixel=0,AnchorPoint=Vector2.new(.5,.5),Position=UDim2.fromScale(.5,.5),Size=UDim2.fromOffset(38,22),ZIndex=1},toggle); Round(glow,99)
+            local knob=New("Frame",{BackgroundColor3=Color3.new(1,1,1),BorderSizePixel=0,AnchorPoint=Vector2.new(.5,.5),Position=state and UDim2.new(1,-11,.5,0) or UDim2.new(0,11,.5,0),Size=UDim2.fromOffset(16,16),ZIndex=toggle.ZIndex+1},toggle); Round(knob,99)
+            local knobScale=New("UIScale",{Scale=1},knob)
+            local function set(value)
+                value=value==true
+                if state==value and not animating then return end
+                state=value; animating=true
+                row:SetAttribute("Active",state)
+                local targetPosition=state and UDim2.new(1,-11,.5,0) or UDim2.new(0,11,.5,0)
+                TweenWithInfo(toggle,TweenInfo.new(.22,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=state and Theme.Accent or offColor})
+                TweenWithInfo(glow,TweenInfo.new(.26,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundTransparency=state and .72 or 1,Size=state and UDim2.fromOffset(46,30) or UDim2.fromOffset(38,22)})
+                TweenWithInfo(knob,TweenInfo.new(.32,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Position=targetPosition})
+                if rowAccent then TweenWithInfo(rowAccent,TweenInfo.new(.2,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundTransparency=state and .1 or .82}) end
+                knobScale.Scale=.82
+                TweenWithInfo(knobScale,TweenInfo.new(.3,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1})
+                task.delay(.32,function() animating=false end)
+                if data.Callback then data.Callback(state) end
+                for _,fn in ipairs(listeners) do fn(state) end
+            end
+            toggle.MouseButton1Click:Connect(function() set(not state) end)
+            toggle.MouseEnter:Connect(function() Tween(toggle,.12,{Size=UDim2.fromOffset(40,23)}) end)
+            toggle.MouseLeave:Connect(function() Tween(toggle,.12,{Size=UDim2.fromOffset(38,22)}) end)
             local control={}
-            local function set(v,emit) value=v==true; Tween(toggle,.15,{BackgroundColor3=value and Theme.Accent or Color3.fromRGB(31,42,62)}); Tween(knob,.15,{Position=UDim2.new(value and 1 or 0,value and -10 or 10,.5,0)}); if emit then if data.Callback then data.Callback(value) end; for _,fn in ipairs(listeners) do fn(value) end end end
-            function control:Get() return value end; function control:Set(v) set(v,true) end; function control:OnChanged(fn) table.insert(listeners,fn); return self end
-            toggle.Activated:Connect(function() set(not value,true) end); return control
+            function control:Get() return state end
+            function control:OnChanged(fn) table.insert(listeners,fn); return self end
+            function control:Set(value) set(value) end
+            return control
         end
         function page:AddDropdown(data)
-            data=data or {}; local row=self:_Row(data.Title,data.Description); local values=data.Values or {}; local multi=data.Multi==true; local selected=multi and {} or {Value=data.Default}; local listeners={}
-            if multi and type(data.Default)=="table" then for _,v in ipairs(data.Default) do selected[v]=true end end
-            local button=New("TextButton",{BackgroundColor3=Color3.fromRGB(10,15,25),BorderSizePixel=0,Text="",AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,-10,.5,0),Size=UDim2.new(.53,0,0,28)},row); Round(button,6); Icon(button,"ChevronDown",13,UDim2.new(1,-12,.5,0)); local valueText=Label(button,"",10,Theme.Muted); valueText.Position=UDim2.fromOffset(9,0); valueText.Size=UDim2.new(1,-28,1,0)
-            local menu=New("Frame",{Visible=false,BackgroundColor3=Theme.Card,BorderSizePixel=0,ZIndex=8,Position=UDim2.new(.47,0,1,3),Size=UDim2.new(.53,0,0,0),ClipsDescendants=true},row); Round(menu,6); Stroke(menu,.25)
-            local menuScroll=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,Size=UDim2.fromScale(1,1),CanvasSize=UDim2.fromScale(0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y},menu); Pad(menuScroll,5); New("UIListLayout",{Padding=UDim.new(0,2)},menuScroll)
-            local control={}; local function result() if not multi then return selected.Value end local out={}; for v,on in pairs(selected) do if on then table.insert(out,v) end end; table.sort(out); return out end
-            local function refresh() local out=result(); valueText.Text=multi and (#out>0 and (#out.." selected") or "Select items") or tostring(out or "Select item") end
-            local function emit() local out=result(); if data.Callback then data.Callback(out) end; for _,fn in ipairs(listeners) do fn(out) end end
+            local row=self:_Row(data.Title or "Select"); local values=data.Values or {}; local current=data.Default or values[1] or "Select"; local listeners={}
+            local button=New("TextButton",{AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(11,17,28),BorderSizePixel=0,Text="",AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,0,.5,0),Size=UDim2.new(.5,0,0,27)},row); Round(button,5); Stroke(button,.75)
+            local buttonText=Text(button,tostring(current).."  Ë…",11,Theme.Muted); buttonText.TextXAlignment=Enum.TextXAlignment.Center
+            local menu=New("Frame",{Visible=false,ZIndex=10,BackgroundColor3=Theme.Inner,BorderSizePixel=0,Position=UDim2.new(0,0,1,4),Size=UDim2.new(1,0,0,150)},button); Round(menu,6); Stroke(menu,.5)
+            local list=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=3,Size=UDim2.fromScale(1,1),ZIndex=11},menu); New("UIListLayout",{},list)
             local function build()
-                for _,child in ipairs(menuScroll:GetChildren()) do if child:IsA("TextButton") then child:Destroy() end end
-                for _,item in ipairs(values) do local itemText=tostring(item); local option=New("TextButton",{BackgroundColor3=Theme.Inner,BorderSizePixel=0,Text=itemText,TextColor3=Theme.Text,Font=Enum.Font.GothamMedium,TextSize=10,TextXAlignment=Enum.TextXAlignment.Left,Size=UDim2.new(1,0,0,25),ZIndex=9},menuScroll); Round(option,4); Pad(option,7); option.Activated:Connect(function() if multi then selected[itemText]=not selected[itemText] else selected.Value=itemText; menu.Visible=false; menu.Size=UDim2.new(.53,0,0,0) end; refresh(); emit(); build() end) end
+                for _,child in ipairs(list:GetChildren()) do if child:IsA("TextButton") then child:Destroy() end end
+                for _,value in ipairs(values) do local choice=New("TextButton",{BackgroundTransparency=1,Text=tostring(value),TextColor3=Theme.Muted,Font=Enum.Font.GothamMedium,TextSize=11,TextXAlignment=Enum.TextXAlignment.Left,Size=UDim2.new(1,0,0,27),ZIndex=12},list); choice.MouseButton1Click:Connect(function() current=value; buttonText.Text=tostring(value).."  Ë…"; menu.Visible=false; for _,fn in ipairs(listeners) do fn(value) end end) end
             end
-            function control:Get() return result() end; function control:Set(v) if multi then selected={}; if type(v)=="table" then for k,x in pairs(v) do selected[type(k)=="number" and tostring(x) or k]=x==true or type(k)=="number" end end else selected.Value=v end; refresh(); emit(); build() end
-            function control:OnChanged(fn) table.insert(listeners,fn); return self end; function control:SetValues(v) values=v or {}; build(); refresh() end
-            button.Activated:Connect(function() menu.Visible=not menu.Visible; menu.Size=menu.Visible and UDim2.new(.53,0,0,math.min(#values*27+10,170)) or UDim2.new(.53,0,0,0) end); build(); refresh(); return control
+            build(); button.MouseButton1Click:Connect(function() menu.Visible=not menu.Visible end)
+            local control={}
+            function control:OnChanged(fn) table.insert(listeners,fn); return self end
+            function control:SetValues(newValues) values=newValues or values; build() end
+            function control:BuildDropdownList() build() end
+            return control
         end
-        function page:AddButton(data) data=data or {}; self.Order=self.Order+1; local b=New("TextButton",{BackgroundColor3=Theme.Inner,BorderSizePixel=0,Text=data.Title or "Button",TextColor3=Theme.Text,Font=Enum.Font.GothamMedium,TextSize=11,LayoutOrder=self.Order,Size=UDim2.new(1,0,0,36)},scroll); Round(b,7); b.Activated:Connect(function() if data.Callback then data.Callback() end end); return b end
-        function page:AddInput(data) data=data or {}; local row=self:_Row(data.Title,data.Description); local value=tostring(data.Default or ""); local listeners={}; local box=New("TextBox",{BackgroundColor3=Color3.fromRGB(10,15,25),BorderSizePixel=0,ClearTextOnFocus=false,Text=value,PlaceholderText=data.Placeholder or "Type here...",TextColor3=Theme.Text,PlaceholderColor3=Theme.Muted,Font=Enum.Font.GothamMedium,TextSize=10,TextXAlignment=Enum.TextXAlignment.Left,AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,-10,.5,0),Size=UDim2.new(.53,0,0,28)},row); Round(box,6); Pad(box,8); local c={}; function c:Get() return value end; function c:Set(v) value=tostring(v or ""); box.Text=value end; function c:OnChanged(fn) table.insert(listeners,fn); return self end; box.FocusLost:Connect(function() value=box.Text; if data.Callback then data.Callback(value) end; for _,fn in ipairs(listeners) do fn(value) end end); return c end
-        tab.Activated:Connect(function() window:SelectTab(page) end); table.insert(window.Pages,page); if #window.Pages==1 then window:SelectTab(page) else LayoutPages() end; return page
+        -- Dropdown premium: suporta multi-seleÃ§Ã£o e usa a camada acima dos cards.
+        function page:AddDropdown(data)
+            local row=self:_Row(data.Title or "Select")
+            local values=data.Values or {}; local multi=data.Multi==true; local listeners={}; local selected={}; local opened=false; local transitionId=0
+            if multi then for _,value in ipairs(data.Default or {}) do selected[value]=true end else selected.value=data.Default or values[1] or "Select" end
+            local button=New("TextButton",{AutoButtonColor=false,BackgroundColor3=Color3.fromRGB(11,17,28),BorderSizePixel=0,Text="",AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,0,.5,0),Size=UDim2.new(.5,0,0,29),ZIndex=2},row); Round(button,6); Stroke(button,.75)
+            local buttonText=Text(button,"",11,Theme.Muted); buttonText.TextXAlignment=Enum.TextXAlignment.Center; buttonText.Size=UDim2.new(1,-28,1,0); buttonText.ZIndex=3
+            local arrow=AddLucideIcon(button,"ChevronDown",14,Theme.Muted,UDim2.new(1,-14,.5,0))
+            if arrow then arrow.ZIndex=4 end
+            local menu=New("Frame",{Visible=false,ZIndex=51,BackgroundColor3=Theme.Inner,BackgroundTransparency=1,BorderSizePixel=0,Size=UDim2.fromOffset(238,160)},dropdownLayer); Round(menu,7); Stroke(menu,.35)
+            local menuScale=New("UIScale",{Scale=.92},menu)
+            local list=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=3,ScrollBarImageColor3=Theme.Accent,Size=UDim2.new(1,-8,1,-8),Position=UDim2.fromOffset(4,4),ZIndex=52},menu); New("UIListLayout",{Padding=UDim.new(0,2)},list)
+            local function emit() for _,fn in ipairs(listeners) do fn(multi and selected or selected.value) end end
+            local function refreshText()
+                if multi then
+                    local names={}; for _,value in ipairs(values) do if selected[value] then table.insert(names,tostring(value)) end end
+                    buttonText.Text=(#names==0 and "Select items" or (#names==1 and names[1] or tostring(#names).." selected"))
+                else buttonText.Text=tostring(selected.value) end
+            end
+            local function closeMenu()
+                if not opened then return end
+                opened=false; transitionId=transitionId+1; local id=transitionId
+                TweenWithInfo(button,TweenInfo.new(.18,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=Color3.fromRGB(11,17,28)})
+                if arrow then TweenWithInfo(arrow,TweenInfo.new(.2,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Rotation=0,ImageColor3=Theme.Muted}) end
+                TweenWithInfo(menuScale,TweenInfo.new(.18,Enum.EasingStyle.Quint,Enum.EasingDirection.In),{Scale=.94})
+                TweenWithInfo(menu,TweenInfo.new(.16,Enum.EasingStyle.Quint,Enum.EasingDirection.In),{BackgroundTransparency=1,Position=menu.Position+UDim2.fromOffset(0,-5)})
+                task.delay(.18,function() if transitionId==id and not opened then menu.Visible=false end end)
+            end
+            local function openMenu()
+                if opened then return end
+                opened=true; transitionId=transitionId+1
+                local pos=button.AbsolutePosition-main.AbsolutePosition
+                local target=UDim2.fromOffset(pos.X+button.AbsoluteSize.X-238,pos.Y+button.AbsoluteSize.Y+7)
+                menu.Position=target+UDim2.fromOffset(0,-7); menu.BackgroundTransparency=1; menuScale.Scale=.92; menu.Visible=true
+                TweenWithInfo(button,TweenInfo.new(.2,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundColor3=Color3.fromRGB(20,27,44)})
+                if arrow then TweenWithInfo(arrow,TweenInfo.new(.28,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Rotation=180,ImageColor3=Theme.Accent}) end
+                TweenWithInfo(menu,TweenInfo.new(.24,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{BackgroundTransparency=0,Position=target})
+                TweenWithInfo(menuScale,TweenInfo.new(.3,Enum.EasingStyle.Back,Enum.EasingDirection.Out),{Scale=1})
+            end
+            local function build()
+                for _,child in ipairs(list:GetChildren()) do if child:IsA("TextButton") then child:Destroy() end end
+                for _,value in ipairs(values) do
+                    local checked=multi and selected[value]
+                    local choice=New("TextButton",{AutoButtonColor=false,BackgroundColor3=checked and Color3.fromRGB(55,43,108) or Color3.fromRGB(18,24,40),BorderSizePixel=0,Text="",Size=UDim2.new(1,0,0,28),ZIndex=53},list); Round(choice,5)
+                    local check=Text(choice,checked and "âœ“" or "",12,Theme.Text,true); check.Position=UDim2.fromOffset(8,0); check.Size=UDim2.fromOffset(18,28); check.ZIndex=54
+                    local choiceText=Text(choice,tostring(value),11,Theme.Muted); choiceText.Position=UDim2.fromOffset(multi and 29 or 10,0); choiceText.Size=UDim2.new(1,-38,1,0); choiceText.ZIndex=54
+                    choice.MouseEnter:Connect(function() Tween(choice,.12,{BackgroundColor3=checked and Color3.fromRGB(68,52,128) or Color3.fromRGB(28,35,55)}) end)
+                    choice.MouseLeave:Connect(function() Tween(choice,.12,{BackgroundColor3=checked and Color3.fromRGB(55,43,108) or Color3.fromRGB(18,24,40)}) end)
+                    choice.MouseButton1Click:Connect(function()
+                        if multi then selected[value]=not selected[value]; build(); emit() else selected.value=value; closeMenu(); emit() end
+                        refreshText()
+                    end)
+                end
+            end
+            refreshText(); build()
+            button.MouseButton1Click:Connect(function() if opened then closeMenu() else openMenu() end end)
+            local control={}
+            function control:OnChanged(fn) table.insert(listeners,fn); if multi then fn(selected) end; return self end
+            function control:Get() return multi and selected or selected.value end
+            function control:Set(newValue)
+                if multi then
+                    selected={}
+                    if type(newValue)=="table" then
+                        for key,value in pairs(newValue) do
+                            if type(key)=="number" then selected[value]=true elseif value then selected[key]=true end
+                        end
+                    end
+                    build(); refreshText(); emit()
+                else
+                    selected.value=newValue; refreshText(); emit()
+                end
+            end
+            function control:SetValues(newValues) values=newValues or values; build(); refreshText() end
+            function control:BuildDropdownList() build() end
+            function control:Close() closeMenu() end
+            return control
+        end
+        function page:AddButton(data)
+            local button=New("TextButton",{AutoButtonColor=false,BackgroundColor3=data.Primary and Theme.Accent or Theme.Inner,BorderSizePixel=0,Text=data.Title or "Button",TextColor3=Theme.Text,Font=Enum.Font.GothamMedium,TextSize=12,Size=UDim2.new(1,0,0,38)},card); Round(button,7); Stroke(button,.65)
+            self._order=self._order+1; button.LayoutOrder=self._order
+            button.MouseEnter:Connect(function() Tween(button,.15,{BackgroundColor3=data.Primary and Color3.fromRGB(160,120,255) or Color3.fromRGB(28,35,55)}) end); button.MouseLeave:Connect(function() Tween(button,.15,{BackgroundColor3=data.Primary and Theme.Accent or Theme.Inner}) end)
+            button.MouseButton1Click:Connect(function() if data.Callback then data.Callback() end end)
+            return button
+        end
+        function page:AddInput(data)
+            local row=self:_Row(data.Title or "Input")
+            local value=data.Default or ""; local listeners={}
+            local input=New("TextBox",{BackgroundColor3=Color3.fromRGB(10,15,25),BorderSizePixel=0,ClearTextOnFocus=false,PlaceholderText=data.Placeholder or "Type here...",PlaceholderColor3=Theme.Muted,Text=value,TextColor3=Theme.Text,Font=Enum.Font.GothamMedium,TextSize=11,TextXAlignment=Enum.TextXAlignment.Left,AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,0,.5,0),Size=UDim2.new(.58,0,0,28)},row); Round(input,6); Stroke(input,.72)
+            New("UIPadding",{PaddingLeft=UDim.new(0,9),PaddingRight=UDim.new(0,9)},input)
+            input.FocusLost:Connect(function()
+                value=input.Text
+                if data.Callback then data.Callback(value) end
+                for _,listener in ipairs(listeners) do listener(value) end
+            end)
+            local control={}
+            function control:Get() return value end
+            function control:Set(newValue) value=tostring(newValue or ""); input.Text=value end
+            function control:OnChanged(listener) table.insert(listeners,listener); return self end
+            return control
+        end
+        function page:AddSection(sectionTitle) local section=Text(card,sectionTitle,12,Theme.Accent,true); self._order=self._order+1; section.LayoutOrder=self._order; section.Size=UDim2.new(1,0,0,25); return section end
+        table.insert(window.Pages,page); if #window.Pages==1 then page:Select() end
+        return page
     end
-    function window:CreateSaveManager(folder)
-        local manager={Controls={},Data={},Folder=folder or "AllanHub/Configs",Dirty=false}; manager.FileName=manager.Folder.."/"..Player.UserId.."_"..game.PlaceId..".json"
-        function manager:Load() if type(isfile)=="function" and isfile(self.FileName) then local ok,data=pcall(function() return HttpService:JSONDecode(readfile(self.FileName)) end); if ok and type(data)=="table" then self.Data=data end end end
-        function manager:Register(id,control) self.Controls[id]=control; if self.Data[id]~=nil then control:Set(self.Data[id]) end; control:OnChanged(function(v) self.Data[id]=v; self.Dirty=true end); return control end
-        function manager:Save(force) if not self.Dirty and not force then return true end; if type(writefile)~="function" then return false end; for id,c in pairs(self.Controls) do self.Data[id]=c:Get() end; local ok=pcall(function() if type(makefolder)=="function" and (type(isfolder)~="function" or not isfolder(self.Folder)) then makefolder(self.Folder) end; writefile(self.FileName,HttpService:JSONEncode(self.Data)); self.Dirty=false end); return ok end
-        function manager:Reset() self.Data={}; self.Dirty=false; if type(delfile)=="function" and type(isfile)=="function" and isfile(self.FileName) then delfile(self.FileName) end end
-        manager:Load(); task.spawn(function() while gui.Parent do task.wait(2); manager:Save() end end); return manager
-    end
+    local dragging=false; local dragStart; local startPosition
+    main.InputBegan:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true; dragStart=input.Position; startPosition=main.Position end end)
+    UserInputService.InputChanged:Connect(function(input) if dragging and input.UserInputType==Enum.UserInputType.MouseMovement then local delta=input.Position-dragStart; main.Position=UDim2.new(startPosition.X.Scale,startPosition.X.Offset+delta.X,startPosition.Y.Scale,startPosition.Y.Offset+delta.Y) end end)
+    UserInputService.InputEnded:Connect(function(input) if input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end end)
     return window
+end
+-- Compatibilidade com scripts que usam AddTab e SaveManager.
+do
+    local NativeCreateWindow = AllanUI.CreateWindow
+    function AllanUI:CreateWindow(options)
+        local window = NativeCreateWindow(self, options)
+        function window:AddTab(info)
+            info = info or {}
+            return self:AddPage(info.Title or "Tab", {
+                Icon = info.Icon,
+                LucideIcon = info.LucideIcon or info.Icon,
+                CardTitle = info.Title or "Tab",
+            })
+        end
+        function window:SelectTab(target)
+            if type(target) == "number" then
+                target = self.Pages[target]
+            end
+            if target and target.Select then
+                target:Select()
+            end
+        end
+        return window
+    end
+end
+
+function AllanUI:CreateSaveManager(folder)
+    local HttpService = game:GetService("HttpService")
+    local manager = {Controls = {}, Data = {}, Dirty = false, Folder = folder or "AllanHub/Configs"}
+    manager.FileName = manager.Folder .. "/" .. Player.UserId .. "_" .. game.PlaceId .. ".json"
+    function manager:Load()
+        if type(isfile) ~= "function" or not isfile(self.FileName) then return end
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(self.FileName)) end)
+        if ok and type(data) == "table" then self.Data = data end
+    end
+    function manager:Register(id, control)
+        self.Controls[id] = control
+        if self.Data[id] ~= nil and control.Set then control:Set(self.Data[id]) end
+        if control.OnChanged then
+            control:OnChanged(function(value)
+                self.Data[id] = value
+                self.Dirty = true
+            end)
+        end
+        return control
+    end
+    function manager:Save(force)
+        if not self.Dirty and not force then return true end
+        if type(writefile) ~= "function" then return false end
+        for id, control in pairs(self.Controls) do
+            if control.Get then self.Data[id] = control:Get() end
+        end
+        local ok = pcall(function()
+            if type(makefolder) == "function" and (type(isfolder) ~= "function" or not isfolder(self.Folder)) then makefolder(self.Folder) end
+            writefile(self.FileName, HttpService:JSONEncode(self.Data))
+            self.Dirty = false
+        end)
+        return ok
+    end
+    function manager:Reset()
+        self.Data = {}
+        self.Dirty = false
+        if type(delfile) == "function" and type(isfile) == "function" and isfile(self.FileName) then delfile(self.FileName) end
+    end
+    manager:Load()
+    return manager
 end
 
 return AllanUI
