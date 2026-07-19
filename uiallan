@@ -501,6 +501,9 @@ do
                 target:Select()
             end
         end
+        function window:CreateSaveManager(folder)
+            return AllanUI:CreateSaveManager(folder)
+        end
         return window
     end
 end
