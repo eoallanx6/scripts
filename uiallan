@@ -27,7 +27,7 @@ local function TweenWithInfo(object, tweenInfo, values)
     return tween
 end
 local function Round(object, radius) New("UICorner", {CornerRadius=UDim.new(0,radius)}, object) end
-local function Stroke(object, transparency) New("UIStroke", {Color=Theme.Stroke,Transparency=transparency or .5}, object) end
+local function Stroke(object, transparency) return New("UIStroke", {Color=Theme.Stroke,Transparency=transparency or .5}, object) end
 local function Text(parent, value, size, color, bold)
     return New("TextLabel", {BackgroundTransparency=1,Text=value,TextColor3=color or Theme.Text,Font=bold and Enum.Font.GothamBold or Enum.Font.GothamMedium,TextSize=size or 12,TextXAlignment=Enum.TextXAlignment.Left,Size=UDim2.fromScale(1,1)}, parent)
 end
