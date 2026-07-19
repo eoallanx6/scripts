@@ -232,7 +232,7 @@ function AllanUI:CreateWindow(options)
     function window:AddPage(name, pageOptions)
         pageOptions=pageOptions or {}
         local card=New("ScrollingFrame",{Visible=dashboardLayout,BackgroundColor3=Theme.Card,BorderSizePixel=0,CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=3,ScrollBarImageColor3=Theme.Accent,Size=UDim2.fromScale(1,1)},content)
-        Round(card,10); Stroke(card,.55); New("UIPadding",{PaddingLeft=UDim.new(0,16),PaddingRight=UDim.new(0,16),PaddingTop=UDim.new(0,15),PaddingBottom=UDim.new(0,15)},card)
+        Round(card,10); local cardStroke=Stroke(card,.55); New("UIPadding",{PaddingLeft=UDim.new(0,16),PaddingRight=UDim.new(0,16),PaddingTop=UDim.new(0,15),PaddingBottom=UDim.new(0,15)},card)
         New("UIListLayout",{Padding=UDim.new(0,9),SortOrder=Enum.SortOrder.LayoutOrder},card)
         local heading=Text(card,"",16,Theme.Accent,true); heading.Size=UDim2.new(1,0,0,30)
         local headingText=Text(heading,pageOptions.CardTitle or name,16,Theme.Accent,true); headingText.Position=UDim2.fromOffset(38,0); headingText.Size=UDim2.new(1,-38,1,0)
@@ -244,18 +244,27 @@ function AllanUI:CreateWindow(options)
         local nav=New("TextButton",{AutoButtonColor=false,BackgroundTransparency=1,BorderSizePixel=0,Text="",Size=UDim2.new(1,0,0,35)},navigation); Round(nav,6)
         local navText=Text(nav,name,12,Theme.Muted); navText.Position=UDim2.fromOffset(42,0); navText.Size=UDim2.new(1,-50,1,0)
         if pageOptions.IconName then AddIcon(nav,pageOptions.IconName,15,Theme.Muted,UDim2.fromOffset(20,17)) end
-        local page={Card=card,Nav=nav,_order=0}
+        local page={Card=card,Nav=nav,Stroke=cardStroke,_order=0,FocusId=0}
         function page:Select()
             if window.Active then
                 Tween(window.Active.Nav,.15,{BackgroundTransparency=1})
                 if not window.DashboardLayout then window.Active.Card.Visible=false end
             end
             window.Active=page; card.Visible=true; Tween(nav,.18,{BackgroundColor3=Color3.fromRGB(58,45,111),BackgroundTransparency=.12}); navText.TextColor3=Color3.fromRGB(215,205,255)
-            if mobileMode and window.DashboardLayout then
+            if window.DashboardLayout then
                 task.defer(function()
-                    content.CanvasPosition=Vector2.new(0,math.max(0,card.AbsolutePosition.Y-content.AbsolutePosition.Y))
+                    local targetY=math.max(0,content.CanvasPosition.Y+card.AbsolutePosition.Y-content.AbsolutePosition.Y)
+                    TweenWithInfo(content,TweenInfo.new(.42,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{CanvasPosition=Vector2.new(0,targetY)})
                 end)
             end
+            self.FocusId=self.FocusId+1
+            local focusId=self.FocusId
+            TweenWithInfo(cardStroke,TweenInfo.new(.22,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Accent,Transparency=0})
+            task.delay(3,function()
+                if cardStroke.Parent and self.FocusId==focusId then
+                    TweenWithInfo(cardStroke,TweenInfo.new(.35,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Stroke,Transparency=.55})
+                end
+            end)
         end
         nav.MouseButton1Click:Connect(page.Select)
         function page:_Row(rowTitle)
