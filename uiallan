@@ -251,24 +251,24 @@ function AllanUI:CreateWindow(options)
                 if not window.DashboardLayout then window.Active.Card.Visible=false end
             end
             window.Active=page; card.Visible=true; Tween(nav,.18,{BackgroundColor3=Color3.fromRGB(58,45,111),BackgroundTransparency=.12}); navText.TextColor3=Color3.fromRGB(215,205,255)
-            if window.DashboardLayout then
-                task.defer(function()
-                    local targetY=math.max(0,content.CanvasPosition.Y+card.AbsolutePosition.Y-content.AbsolutePosition.Y)
-                    TweenWithInfo(content,TweenInfo.new(.42,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{CanvasPosition=Vector2.new(0,targetY)})
-                end)
-            end
-            self.FocusId=self.FocusId+1
-            local focusId=self.FocusId
-            if cardStroke then
-                TweenWithInfo(cardStroke,TweenInfo.new(.22,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Accent,Transparency=0})
-                task.delay(3,function()
-                    if cardStroke.Parent and self.FocusId==focusId then
-                        TweenWithInfo(cardStroke,TweenInfo.new(.35,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Stroke,Transparency=.55})
-                    end
-                end)
-            end
         end
-        nav.MouseButton1Click:Connect(page.Select)
+        nav.MouseButton1Click:Connect(function()
+            page:Select()
+            if not window.DashboardLayout then return end
+            task.defer(function()
+                local targetY=math.max(0,content.CanvasPosition.Y+card.AbsolutePosition.Y-content.AbsolutePosition.Y)
+                TweenWithInfo(content,TweenInfo.new(.42,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{CanvasPosition=Vector2.new(0,targetY)})
+            end)
+            if not cardStroke then return end
+            page.FocusId=page.FocusId+1
+            local focusId=page.FocusId
+            TweenWithInfo(cardStroke,TweenInfo.new(.22,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Accent,Transparency=0})
+            task.delay(3,function()
+                if cardStroke.Parent and page.FocusId==focusId then
+                    TweenWithInfo(cardStroke,TweenInfo.new(.35,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Stroke,Transparency=.55})
+                end
+            end)
+        end)
         function page:_Row(rowTitle)
             local row=New("Frame",{BackgroundColor3=Theme.Inner,BackgroundTransparency=.56,BorderSizePixel=0,Size=UDim2.new(1,0,0,38)},card)
             self._order=self._order+1; row.LayoutOrder=self._order
