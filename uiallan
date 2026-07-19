@@ -414,7 +414,7 @@ function AllanUI:CreateWindow(options)
                 for _,value in ipairs(values) do
                     local checked=multi and selected[value]
                     local choice=New("TextButton",{AutoButtonColor=false,BackgroundColor3=checked and Color3.fromRGB(55,43,108) or Color3.fromRGB(18,24,40),BorderSizePixel=0,Text="",Size=UDim2.new(1,0,0,28),ZIndex=53},list); Round(choice,5)
-                    local check=Text(choice,checked and "âœ“" or "",12,Theme.Text,true); check.Position=UDim2.fromOffset(8,0); check.Size=UDim2.fromOffset(18,28); check.ZIndex=54
+                    local check=Text(choice,checked and utf8.char(0x2713) or "",12,Theme.Text,true); check.Position=UDim2.fromOffset(8,0); check.Size=UDim2.fromOffset(18,28); check.ZIndex=54
                     local choiceText=Text(choice,tostring(value),11,Theme.Muted); choiceText.Position=UDim2.fromOffset(multi and 29 or 10,0); choiceText.Size=UDim2.new(1,-38,1,0); choiceText.ZIndex=54
                     choice.MouseEnter:Connect(function() Tween(choice,.12,{BackgroundColor3=checked and Color3.fromRGB(68,52,128) or Color3.fromRGB(28,35,55)}) end)
                     choice.MouseLeave:Connect(function() Tween(choice,.12,{BackgroundColor3=checked and Color3.fromRGB(55,43,108) or Color3.fromRGB(18,24,40)}) end)
