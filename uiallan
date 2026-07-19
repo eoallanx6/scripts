@@ -232,7 +232,7 @@ function AllanUI:CreateWindow(options)
     function window:AddPage(name, pageOptions)
         pageOptions=pageOptions or {}
         local card=New("ScrollingFrame",{Visible=dashboardLayout,BackgroundColor3=Theme.Card,BorderSizePixel=0,CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=3,ScrollBarImageColor3=Theme.Accent,Size=UDim2.fromScale(1,1)},content)
-        Round(card,10); local cardStroke=Stroke(card,.55); New("UIPadding",{PaddingLeft=UDim.new(0,16),PaddingRight=UDim.new(0,16),PaddingTop=UDim.new(0,15),PaddingBottom=UDim.new(0,15)},card)
+        Round(card,10); Stroke(card,.55); local cardStroke=card:FindFirstChildOfClass("UIStroke"); New("UIPadding",{PaddingLeft=UDim.new(0,16),PaddingRight=UDim.new(0,16),PaddingTop=UDim.new(0,15),PaddingBottom=UDim.new(0,15)},card)
         New("UIListLayout",{Padding=UDim.new(0,9),SortOrder=Enum.SortOrder.LayoutOrder},card)
         local heading=Text(card,"",16,Theme.Accent,true); heading.Size=UDim2.new(1,0,0,30)
         local headingText=Text(heading,pageOptions.CardTitle or name,16,Theme.Accent,true); headingText.Position=UDim2.fromOffset(38,0); headingText.Size=UDim2.new(1,-38,1,0)
@@ -259,12 +259,14 @@ function AllanUI:CreateWindow(options)
             end
             self.FocusId=self.FocusId+1
             local focusId=self.FocusId
-            TweenWithInfo(cardStroke,TweenInfo.new(.22,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Accent,Transparency=0})
-            task.delay(3,function()
-                if cardStroke.Parent and self.FocusId==focusId then
-                    TweenWithInfo(cardStroke,TweenInfo.new(.35,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Stroke,Transparency=.55})
-                end
-            end)
+            if cardStroke then
+                TweenWithInfo(cardStroke,TweenInfo.new(.22,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Accent,Transparency=0})
+                task.delay(3,function()
+                    if cardStroke.Parent and self.FocusId==focusId then
+                        TweenWithInfo(cardStroke,TweenInfo.new(.35,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Stroke,Transparency=.55})
+                    end
+                end)
+            end
         end
         nav.MouseButton1Click:Connect(page.Select)
         function page:_Row(rowTitle)
