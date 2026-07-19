@@ -262,10 +262,10 @@ function AllanUI:CreateWindow(options)
             if not cardStroke then return end
             page.FocusId=page.FocusId+1
             local focusId=page.FocusId
-            TweenWithInfo(cardStroke,TweenInfo.new(.22,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Accent,Transparency=0})
+            TweenWithInfo(cardStroke,TweenInfo.new(.22,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Color3.fromRGB(185,145,255),Transparency=0,Thickness=3})
             task.delay(3,function()
                 if cardStroke.Parent and page.FocusId==focusId then
-                    TweenWithInfo(cardStroke,TweenInfo.new(.35,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Stroke,Transparency=.55})
+                    TweenWithInfo(cardStroke,TweenInfo.new(.35,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Color=Theme.Stroke,Transparency=.55,Thickness=1})
                 end
             end)
         end)
