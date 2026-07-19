@@ -61,7 +61,7 @@ function AllanUI:CreateWindow(options)
     reopen.Activated:Connect(function() main.Visible=not main.Visible end)
 
     local sidebar=New("Frame",{BackgroundColor3=Theme.Sidebar,BorderSizePixel=0,Position=UDim2.fromOffset(0,62),Size=UDim2.new(0,mobile and 126 or 224,1,-62)},main)
-    local tabs=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,Position=UDim2.fromOffset(10,12),Size=UDim2.new(1,-20,1,-24),CanvasSize=UDim2.fromScale(0,0),AutomaticCanvasSize=Enum.AutomaticSize},sidebar)
+    local tabs=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,Position=UDim2.fromOffset(10,12),Size=UDim2.new(1,-20,1,-24),CanvasSize=UDim2.fromScale(0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y},sidebar)
     local list=New("UIListLayout",{Padding=UDim.new(0,5)},tabs)
     local content=New("Frame",{BackgroundTransparency=1,Position=UDim2.new(0,mobile and 126 or 224,0,62),Size=UDim2.new(1,mobile and -126 or -224,1,-62)},main)
     local function LayoutPages()
@@ -95,7 +95,7 @@ function AllanUI:CreateWindow(options)
         local tab=New("TextButton",{BackgroundColor3=Theme.Sidebar,BorderSizePixel=0,Text="",Size=UDim2.new(1,0,0,38)},tabs); Round(tab,7); page.Tab=tab
         Icon(tab,info.LucideIcon or info.Icon,15,UDim2.fromOffset(16,19)); local tabText=Label(tab,info.Title or "Tab",11,Theme.Muted); tabText.Position=UDim2.fromOffset(31,0); tabText.Size=UDim2.new(1,-38,1,0)
         local card=New("Frame",{BackgroundColor3=Theme.Card,BorderSizePixel=0,ClipsDescendants=true},content); Round(card,10); Stroke(card,.45); page.Card=card
-        local scroll=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,Position=UDim2.fromOffset(10,10),Size=UDim2.new(1,-20,1,-20),CanvasSize=UDim2.fromScale(0,0),AutomaticCanvasSize=Enum.AutomaticSize},card); Pad(scroll,4); page.Scroll=scroll
+        local scroll=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=3,Position=UDim2.fromOffset(10,10),Size=UDim2.new(1,-20,1,-20),CanvasSize=UDim2.fromScale(0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y},card); Pad(scroll,4); page.Scroll=scroll
         New("UIListLayout",{Padding=UDim.new(0,7),SortOrder=Enum.SortOrder.LayoutOrder},scroll)
         function page:_Row(name,description)
             self.Order=self.Order+1; local row=New("Frame",{BackgroundColor3=Theme.Inner,BorderSizePixel=0,LayoutOrder=self.Order,Size=UDim2.new(1,0,0,description and 57 or 43)},scroll); Round(row,7)
@@ -120,7 +120,7 @@ function AllanUI:CreateWindow(options)
             if multi and type(data.Default)=="table" then for _,v in ipairs(data.Default) do selected[v]=true end end
             local button=New("TextButton",{BackgroundColor3=Color3.fromRGB(10,15,25),BorderSizePixel=0,Text="",AnchorPoint=Vector2.new(1,.5),Position=UDim2.new(1,-10,.5,0),Size=UDim2.new(.53,0,0,28)},row); Round(button,6); Icon(button,"ChevronDown",13,UDim2.new(1,-12,.5,0)); local valueText=Label(button,"",10,Theme.Muted); valueText.Position=UDim2.fromOffset(9,0); valueText.Size=UDim2.new(1,-28,1,0)
             local menu=New("Frame",{Visible=false,BackgroundColor3=Theme.Card,BorderSizePixel=0,ZIndex=8,Position=UDim2.new(.47,0,1,3),Size=UDim2.new(.53,0,0,0),ClipsDescendants=true},row); Round(menu,6); Stroke(menu,.25)
-            local menuScroll=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,Size=UDim2.fromScale(1,1),CanvasSize=UDim2.fromScale(0,0),AutomaticCanvasSize=Enum.AutomaticSize},menu); Pad(menuScroll,5); New("UIListLayout",{Padding=UDim.new(0,2)},menuScroll)
+            local menuScroll=New("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,ScrollBarThickness=2,Size=UDim2.fromScale(1,1),CanvasSize=UDim2.fromScale(0,0),AutomaticCanvasSize=Enum.AutomaticSize.Y},menu); Pad(menuScroll,5); New("UIListLayout",{Padding=UDim.new(0,2)},menuScroll)
             local control={}; local function result() if not multi then return selected.Value end local out={}; for v,on in pairs(selected) do if on then table.insert(out,v) end end; table.sort(out); return out end
             local function refresh() local out=result(); valueText.Text=multi and (#out>0 and (#out.." selected") or "Select items") or tostring(out or "Select item") end
             local function emit() local out=result(); if data.Callback then data.Callback(out) end; for _,fn in ipairs(listeners) do fn(out) end end
