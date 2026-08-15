@@ -229,27 +229,63 @@ local function playerHasTool(player, name)
         or (char and char:FindFirstChild(name) ~= nil)
 end
 
+local function readValueObject(obj)
+    if not obj then return nil end
+
+    -- Folder/Model nao possuem .Value.
+    if obj:IsA("ValueBase") then
+        return obj.Value
+    end
+
+    return nil
+end
+
 local function playerRaceTier(player)
     if not player then return 1 end
 
     local race = normalizeRace(getRaceValue(player))
     local data = player:FindFirstChild("Data")
     local raceObj = data and data:FindFirstChild("Race")
-    local evolved = raceObj and raceObj:FindFirstChild("Evolved")
 
-    if evolved and tonumber(evolved.Value) then
-        local value = tonumber(evolved.Value)
-        if value >= 4 then return 4 end
-        if value >= 3 then return 3 end
-        if value >= 2 then return 2 end
+    -- 1) Dados explicitos de versao, quando existirem.
+    if data then
+        local explicit =
+            data:FindFirstChild("RaceV")
+            or data:FindFirstChild("RaceLevel")
+            or data:FindFirstChild("V3")
+
+        local value = readValueObject(explicit)
+
+        if value == true then
+            return 3
+        end
+
+        if type(value) == "number" then
+            if value >= 4 then return 4 end
+            if value >= 3 then return 3 end
+            if value >= 2 then return 2 end
+        end
     end
 
+    -- 2) Skill da V3 e um indicador forte e nao depende de Evolved.Value.
     local v3Skill = V3SkillByRace[race]
     if v3Skill and playerHasTool(player, v3Skill) then
         return 3
     end
 
+    -- 3) Evolved pode ser Folder no jogo atual.
+    -- A existencia dela indica evolucao, mas NAO acessamos .Value.
+    local evolved = raceObj and raceObj:FindFirstChild("Evolved")
     if evolved then
+        local value = readValueObject(evolved)
+
+        if type(value) == "number" then
+            if value >= 4 then return 4 end
+            if value >= 3 then return 3 end
+            if value >= 2 then return 2 end
+        end
+
+        -- Se for Folder/Model, no minimo sabemos que houve evolucao.
         return 2
     end
 
@@ -472,6 +508,20 @@ function Module:WenlockState()
 end
 
 function Module:IsV3()
+    -- Fonte principal: o codigo principal ja possui IsRaceV3DoneStrict(),
+    -- que conhece o cache/GuideModule/Wenlocktoad atual.
+    if type(self.Adapter.IsV3) == "function" then
+        local ok, result = pcall(self.Adapter.IsV3)
+        if ok and result == true then
+            return true
+        end
+    end
+
+    local char = getCharacter()
+    if char and char:FindFirstChild("RaceTransformed") then
+        return true
+    end
+
     local race = normalizeRace(getRaceValue(LP))
     local skill = V3SkillByRace[race]
 
@@ -479,10 +529,28 @@ function Module:IsV3()
         return true
     end
 
+    -- Data.Race.Evolved pode ser Folder. NUNCA usa evolved.Value diretamente.
     local data = LP:FindFirstChild("Data")
-    local raceObj = data and data:FindFirstChild("Race")
-    local evolved = raceObj and raceObj:FindFirstChild("Evolved")
-    if evolved and tonumber(evolved.Value) and tonumber(evolved.Value) >= 3 then
+    if data then
+        local explicit =
+            data:FindFirstChild("RaceV")
+            or data:FindFirstChild("RaceLevel")
+            or data:FindFirstChild("V3")
+
+        local value = readValueObject(explicit)
+
+        if value == true then
+            return true
+        end
+
+        if type(value) == "number" and value >= 3 then
+            return true
+        end
+    end
+
+    -- No Sea 2, -2 e a confirmacao usada pelo proprio hub.
+    local state = self:WenlockState()
+    if state == -2 then
         return true
     end
 
