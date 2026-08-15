@@ -59,6 +59,8 @@ Module.Config = {
     HumanHopIfSequenceNotStarted = true,
     HumanWaitAfterBoss = 6,
     HumanFinalWenlockWait = 30,
+    HumanForcedDeliveryRetries = 15,
+    HumanForcedDeliveryInterval = 0.8,
 
     AngelRequireTargetV3OrV4 = true,
     PlayerKillTimeout = 90,
@@ -521,6 +523,59 @@ function Module:TryDeliverV3()
     return self:IsV3()
 end
 
+function Module:ForceDeliverHumanV3(reason)
+    -- Atualização importante para a Human V3 atual:
+    -- após Diamond + Jeremy + Orbitus serem abatidos, não dependemos de
+    -- Wenlocktoad("1") mudar para 2. Em algumas sessões esse retorno fica em 1
+    -- mesmo com o objetivo concluído. Então chamamos o passo 3 diretamente e
+    -- confirmamos depois de cada tentativa.
+    local why = reason or "3 bosses concluídos"
+
+    for attempt = 1, self.Config.HumanForcedDeliveryRetries do
+        if not self:_shouldContinue() then return false end
+
+        if self:IsV3() then
+            self:_status("Race V3 Human | Concluída", "V3 confirmada")
+            return true
+        end
+
+        local before = self:WenlockState()
+        self:_status(
+            "Race V3 Human | Entregando V3",
+            why .. " | Wenlock=" .. tostring(before)
+                .. " | Wenlocktoad(3) tentativa " .. tostring(attempt)
+        )
+
+        pcall(function()
+            CommF:InvokeServer("Wenlocktoad", "3")
+        end)
+
+        task.wait(self.Config.HumanForcedDeliveryInterval)
+
+        if self:IsV3() then
+            self:_status("Race V3 Human | Concluída", "V3 confirmada após Wenlocktoad(3)")
+            return true
+        end
+
+        local after = self:WenlockState()
+        if after == -2 then
+            self:_status("Race V3 Human | Concluída", "Wenlocktoad confirmou V3")
+            return true
+        end
+
+        -- Se o servidor finalmente expuser 2, tenta o fluxo normal também.
+        if after == 2 and self:TryDeliverV3() then
+            return true
+        end
+    end
+
+    self:_status(
+        "Race V3 Human | Entrega não confirmou",
+        "Wenlocktoad(3) foi chamado; mantendo servidor atual e tentando de novo no próximo ciclo"
+    )
+    return false
+end
+
 function Module:_pollUntilDeliverable(timeoutSeconds, label)
     local started = now()
     while self:_shouldContinue() and now() - started < timeoutSeconds do
@@ -672,9 +727,8 @@ function Module:_runHuman()
 
             self.State.HumanKilled[bossName] = true
 
-            -- BUG FIX PRINCIPAL:
-            -- depois da kill não decide hop olhando workspace.
-            -- Primeiro consulta Wenlock repetidamente.
+            -- Depois de cada kill ainda damos uma janela curta ao servidor.
+            -- Se já estiver pronto, entrega imediatamente.
             if self:_pollUntilDeliverable(
                 self.Config.HumanWaitAfterBoss,
                 bossName .. " morto"
@@ -689,12 +743,9 @@ function Module:_runHuman()
         end
     end
 
-    -- Matou/varreu os três: fica esperando a atualização do servidor.
-    -- Não dá hop nessa fase.
-    return self:_pollUntilDeliverable(
-        self.Config.HumanFinalWenlockWait,
-        "3 bosses concluídos"
-    )
+    -- Matou/varreu os três: NÃO fica preso esperando Wenlocktoad(1) virar 2.
+    -- Chama Wenlocktoad(3) diretamente em tentativas controladas e confirma V3.
+    return self:ForceDeliverHumanV3("Diamond + Jeremy + Orbitus abatidos")
 end
 
 function Module:_targetAngelV3OrV4(player)
