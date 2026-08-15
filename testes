@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "1.1.0"
+Module.Version = "1.2.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -741,6 +741,21 @@ function Module:_runHuman()
     -- ENTREGA tem prioridade absoluta antes de qualquer busca/hop.
     if self:TryDeliverV3() then
         return true
+    end
+
+    -- Se acabamos de tentar uma entrega forçada porque Wenlocktoad("1")
+    -- retornou nil, não fazemos hop imediatamente. Isso cobre o caso em que
+    -- Diamond + Jeremy + Orbitus já foram mortos numa execução anterior e
+    -- o servidor ainda não expõe o estado da missão.
+    if self.State.HumanDeliveryGraceUntil
+        and os.clock() < self.State.HumanDeliveryGraceUntil
+    then
+        self:_status(
+            "Race V3 Human | Sincronizando entrega",
+            "Wenlock nil | mantendo servidor atual | sem Hop"
+        )
+        task.wait(1)
+        return false
     end
 
     if not self.State.HumanSequenceStarted then
@@ -1479,6 +1494,7 @@ function Module:ResetSession()
     self.State.SharkBoat = nil
     self.State.LastWenlockState = nil
     self.State.LastStatus = nil
+    self.State.HumanDeliveryGraceUntil = nil
 end
 
 function Module:Stop()
@@ -1635,6 +1651,16 @@ function Module:Run()
             if self:ForceDeliverHumanV3("Wenlocktoad nil | checagem preventiva") then
                 return true
             end
+
+            -- Não cai direto em "boss faltando -> hop" depois de uma entrega
+            -- forçada com retorno nil. Mantém o servidor e deixa o próximo
+            -- ciclo consultar/entregar novamente.
+            self.State.HumanDeliveryGraceUntil = os.clock() + 12
+            self:_status(
+                "Race V3 Human | Wenlock nil",
+                "Entrega tentou Wenlocktoad(3) | aguardando sincronização | sem Hop"
+            )
+            return false
         end
 
         return RunRaceHandler()
