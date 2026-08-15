@@ -86,6 +86,11 @@ Module.Config = {
 
     WenlockPollDelay = 0.5,
     DeliveryRetries = 12,
+
+    -- O jogo atual pode retornar nil no Wenlocktoad("1").
+    -- Nil nao pode cancelar a Race V3.
+    WenlockNilRetries = 4,
+    WenlockNilRetryDelay = 0.45,
 }
 
 Module.State = {
@@ -1501,10 +1506,37 @@ function Module:Run()
 
         self:_status("Race V3 | Iniciando", "Raça: " .. tostring(race))
 
-        -- Primeiro consulta Wenlock. Isso é a "máquina de estados" principal,
-        -- igual à estrutura usada no Snow.
+        local function RunRaceHandler()
+            if race == "Human" then
+                return self:_runHuman()
+            elseif race == "Skypiea" then
+                return self:_runPlayerKillRace("Angel")
+            elseif race == "Ghoul" then
+                return self:_runPlayerKillRace("Ghoul")
+            elseif race == "Mink" then
+                return self:_runMink()
+            elseif race == "Fishman" then
+                return self:_runShark()
+            elseif race == "Cyborg" then
+                return self:_runCyborg()
+            end
+
+            self:_status(
+                "Race V3",
+                "Raça sem handler: " .. tostring(race)
+            )
+            return false
+        end
+
+        -- O Wenlock atual pode responder nil. Nao tratamos nil como erro fatal.
         local state = self:WenlockState()
 
+        if state == -2 then
+            self:_status("Race V3", "Wenlocktoad confirmou V3")
+            return true
+        end
+
+        -- Se retornou 0, inicia a quest normalmente.
         if state == 0 then
             self:_status("Race V3 | Wenlocktoad", "Iniciando missão")
             pcall(function()
@@ -1514,37 +1546,98 @@ function Module:Run()
             state = self:WenlockState()
         end
 
-        if state == 2 then
-            return self:TryDeliverV3()
-        end
-
-        if state ~= 1 then
+        -- Se o retorno veio nil, faz tentativas curtas.
+        if state == nil then
             self:_status(
                 "Race V3 | Wenlocktoad",
-                "Estado inesperado: " .. tostring(state)
+                "Retorno nil | tentando sincronizar missão"
+            )
+
+            for attempt = 1, self.Config.WenlockNilRetries do
+                if not self:_shouldContinue() then
+                    return false
+                end
+
+                if self:IsV3() then
+                    return true
+                end
+
+                -- Wenlocktoad(2) funciona como tentativa segura de iniciar/garantir
+                -- que a quest esteja ativa; se já estiver ativa o servidor ignora.
+                if attempt == 1 then
+                    pcall(function()
+                        CommF:InvokeServer("Wenlocktoad", "2")
+                    end)
+                end
+
+                task.wait(self.Config.WenlockNilRetryDelay)
+                state = self:WenlockState()
+
+                self:_status(
+                    "Race V3 | Wenlocktoad",
+                    "Sincronizando | tentativa "
+                        .. tostring(attempt)
+                        .. "/"
+                        .. tostring(self.Config.WenlockNilRetries)
+                        .. " | estado="
+                        .. tostring(state)
+                )
+
+                if state ~= nil then
+                    break
+                end
+            end
+        end
+
+        if state == -2 then
+            return true
+        end
+
+        if state == 2 then
+            if self:TryDeliverV3() then
+                return true
+            end
+
+            -- Se a entrega normal nao confirmou, Human possui entrega forcada.
+            if race == "Human" then
+                return self:ForceDeliverHumanV3("Wenlocktoad retornou 2")
+            end
+        end
+
+        if state == 1 then
+            return RunRaceHandler()
+        end
+
+        if state == 0 then
+            -- O servidor ainda nao mudou de 0 depois do passo 2.
+            -- Nao trava o scheduler; no proximo ciclo tenta novamente.
+            self:_status(
+                "Race V3 | Wenlocktoad",
+                "Missão ainda iniciando | aguardando próximo ciclo"
             )
             return false
         end
 
-        if race == "Human" then
-            return self:_runHuman()
-        elseif race == "Skypiea" then
-            return self:_runPlayerKillRace("Angel")
-        elseif race == "Ghoul" then
-            return self:_runPlayerKillRace("Ghoul")
-        elseif race == "Mink" then
-            return self:_runMink()
-        elseif race == "Fishman" then
-            return self:_runShark()
-        elseif race == "Cyborg" then
-            return self:_runCyborg()
+        -- FIX PRINCIPAL:
+        -- nil/retorno desconhecido nao interrompe mais a Race V3.
+        -- O script executa o objetivo especifico da raça e continua consultando
+        -- Wenlocktoad dentro do proprio handler.
+        self:_status(
+            "Race V3 | Wenlocktoad",
+            "Estado " .. tostring(state)
+                .. " | continuando pelo objetivo da raça "
+                .. tostring(race)
+        )
+
+        -- Para Human, antes de qualquer hop com estado nil, tenta entregar.
+        -- Isso cobre a conta que ja matou Diamond + Jeremy + Orbitus.
+        if race == "Human" and state == nil then
+            if self:ForceDeliverHumanV3("Wenlocktoad nil | checagem preventiva") then
+                return true
+            end
         end
 
-        self:_status(
-            "Race V3",
-            "Raça sem handler: " .. tostring(race)
-        )
-        return false
+        return RunRaceHandler()
     end, debug.traceback)
 
     self.State.Running = false
