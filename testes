@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "1.6.0"
+Module.Version = "1.7.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -503,7 +503,28 @@ function Module:_attackPlayer(player, condition)
     return false
 end
 
+function Module:_resolveNpcEntryCFrame(key, data)
+    if typeof(key) == "CFrame" then
+        return key
+    elseif typeof(key) == "Vector3" then
+        return CFrame.new(key)
+    end
+
+    if type(data) == "table" then
+        if typeof(data.CFrame) == "CFrame" then
+            return data.CFrame
+        elseif typeof(data.CFrame) == "Vector3" then
+            return CFrame.new(data.CFrame)
+        elseif typeof(data.Position) == "Vector3" then
+            return CFrame.new(data.Position)
+        end
+    end
+
+    return nil
+end
+
 function Module:_findWenlockNPC()
+    -- 1) Tenta localizar a instancia real carregada no workspace.
     local roots = {
         Workspace:FindFirstChild("NPCs"),
         Workspace:FindFirstChild("Map"),
@@ -523,64 +544,126 @@ function Module:_findWenlockNPC()
                 if matched then
                     if obj:IsA("Model") then
                         local r = getRoot(obj)
-                        if r then
-                            return obj, r
-                        end
+                        if r then return obj, r, r.CFrame end
                     elseif obj:IsA("BasePart") then
-                        return obj.Parent, obj
+                        return obj.Parent, obj, obj.CFrame
                     end
                 end
             end
         end
     end
 
-    return nil, nil
+    -- 2) Fallback mais forte: GuideModule.NPCList.
+    local ok, npcList = pcall(function()
+        return require(ReplicatedStorage.GuideModule).Data.NPCList
+    end)
+
+    if ok and type(npcList) == "table" then
+        for key, data in pairs(npcList) do
+            local name = ""
+            if type(data) == "table" then
+                name = tostring(data.NPCName or data.Name or data.Title or "")
+            end
+            local lname = string.lower(name)
+            if lname:find("arowe", 1, true) or lname:find("wenlock", 1, true) then
+                local cf = self:_resolveNpcEntryCFrame(key, data)
+                if cf then
+                    return nil, nil, cf
+                end
+            end
+        end
+    end
+
+    return nil, nil, nil
 end
 
 function Module:_goToWenlock()
     if type(self.Adapter.GoToWenlock) == "function" then
         local ok, result = pcall(self.Adapter.GoToWenlock)
-        if ok and result ~= false then
-            return true
-        end
+        if ok and result ~= false then return true end
     end
 
-    local npc, root = self:_findWenlockNPC()
-
-    if not root then
-        self:_status("Race V3 | Wenlocktoad", "Arowe/Wenlock nao carregado")
+    local npc, root, cf = self:_findWenlockNPC()
+    if not cf then
+        self:_status("Race V3 | Arowe", "NPC/posicao nao encontrada")
         return false
     end
 
-    self:_status(
-        "Race V3 | Wenlocktoad",
-        "Indo ate " .. tostring(npc and npc.Name or "Arowe")
-    )
-
+    self:_status("Race V3 | Arowe", "Indo ate o NPC da V3")
     local started = now()
-    while self:_shouldContinue()
-        and root
-        and root.Parent
-        and now() - started < self.Config.WenlockApproachTimeout
-    do
+
+    while self:_shouldContinue() and now() - started < self.Config.WenlockApproachTimeout do
         local myRoot = getRoot(getCharacter())
-        if myRoot
-            and (myRoot.Position - root.Position).Magnitude
-                <= self.Config.WenlockReachDistance
-        then
+        if myRoot and (myRoot.Position - cf.Position).Magnitude <= self.Config.WenlockReachDistance then
             return true
         end
 
-        self:_moveTo(root.CFrame * CFrame.new(0, 0, 4))
+        self:_moveTo(cf * CFrame.new(0, 0, 4))
         task.wait(0.15)
+
+        -- Se a instancia carregou durante a aproximacao, passa a usar a posicao real.
+        if not root or not root.Parent then
+            local npc2, root2, cf2 = self:_findWenlockNPC()
+            npc, root, cf = npc2 or npc, root2 or root, cf2 or cf
+        elseif root then
+            cf = root.CFrame
+        end
     end
 
     local myRoot = getRoot(getCharacter())
-    return myRoot ~= nil
-        and root ~= nil
-        and root.Parent ~= nil
-        and (myRoot.Position - root.Position).Magnitude
-            <= self.Config.WenlockReachDistance + 5
+    return myRoot and (myRoot.Position - cf.Position).Magnitude <= self.Config.WenlockReachDistance + 6
+end
+
+function Module:_interactWenlockNpc()
+    if not self:_goToWenlock() then
+        return false
+    end
+
+    local npc, root = self:_findWenlockNPC()
+    local fired = false
+
+    -- Interacao real do NPC primeiro. Isso cobre versoes onde o CommF antigo
+    -- retorna nil mas o prompt/dialogo ainda inicia/finaliza a quest.
+    if npc then
+        for _, obj in ipairs(npc:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") and type(fireproximityprompt) == "function" then
+                pcall(fireproximityprompt, obj)
+                fired = true
+            elseif obj:IsA("ClickDetector") and type(fireclickdetector) == "function" then
+                pcall(fireclickdetector, obj)
+                fired = true
+            end
+        end
+    end
+
+    -- Procura prompts/clicks perto do root mesmo se o Model nao tiver nome Arowe.
+    if root then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if (obj:IsA("ProximityPrompt") or obj:IsA("ClickDetector")) then
+                local part = obj.Parent
+                if part and part:IsA("BasePart") and (part.Position - root.Position).Magnitude <= 25 then
+                    if obj:IsA("ProximityPrompt") and type(fireproximityprompt) == "function" then
+                        pcall(fireproximityprompt, obj)
+                        fired = true
+                    elseif obj:IsA("ClickDetector") and type(fireclickdetector) == "function" then
+                        pcall(fireclickdetector, obj)
+                        fired = true
+                    end
+                end
+            end
+        end
+    end
+
+    task.wait(0.8)
+    return fired
+end
+
+function Module:_readRaceV()
+    local ok, value = pcall(function()
+        return getsenv(ReplicatedStorage.GuideModule)._G.ServerData.RaceV
+    end)
+    if ok then return value end
+    return nil
 end
 
 function Module:_invokeWenlock(action, requireNear)
@@ -632,13 +715,14 @@ function Module:WenlockState(requireNear)
 end
 
 function Module:IsV3()
-    -- Fonte principal: o codigo principal ja possui IsRaceV3DoneStrict(),
-    -- que conhece o cache/GuideModule/Wenlocktoad atual.
     if type(self.Adapter.IsV3) == "function" then
         local ok, result = pcall(self.Adapter.IsV3)
-        if ok and result == true then
-            return true
-        end
+        if ok and result == true then return true end
+    end
+
+    local raceV = self:_readRaceV()
+    if type(raceV) == "number" and raceV >= 3 then
+        return true
     end
 
     local char = getCharacter()
@@ -648,33 +732,7 @@ function Module:IsV3()
 
     local race = normalizeRace(getRaceValue(LP))
     local skill = V3SkillByRace[race]
-
     if skill and playerHasTool(LP, skill) then
-        return true
-    end
-
-    -- Data.Race.Evolved pode ser Folder. NUNCA usa evolved.Value diretamente.
-    local data = LP:FindFirstChild("Data")
-    if data then
-        local explicit =
-            data:FindFirstChild("RaceV")
-            or data:FindFirstChild("RaceLevel")
-            or data:FindFirstChild("V3")
-
-        local value = readValueObject(explicit)
-
-        if value == true then
-            return true
-        end
-
-        if type(value) == "number" and value >= 3 then
-            return true
-        end
-    end
-
-    -- No Sea 2, -2 e a confirmacao usada pelo proprio hub.
-    local state = self:WenlockState()
-    if state == -2 then
         return true
     end
 
@@ -682,38 +740,15 @@ function Module:IsV3()
 end
 
 function Module:TryDeliverV3()
-    if self:IsV3() then
-        return true
-    end
+    if self:IsV3() then return true end
 
     local state = self:WenlockState(false)
-
-    if state == -2 then
-        self:_status(
-            "Race V3 | Concluida",
-            "Wenlocktoad(1) = -2"
-        )
-        return true
-    end
+    if state == -2 then return true end
 
     if state == 2 then
-        self:_status(
-            "Race V3 | Entregando missao",
-            "Servidor liberou entrega | Wenlocktoad(3)"
-        )
-
         self:_invokeWenlock("3", false)
-        task.wait(self.Config.WenlockDeliveryDelay)
-
-        local after = self:WenlockState(false)
-
-        if after == -2 or self:IsV3() then
-            self:_status(
-                "Race V3 | Concluida",
-                "Wenlocktoad(1) = " .. tostring(after)
-            )
-            return true
-        end
+        task.wait(0.8)
+        return self:IsV3() or self:WenlockState(false) == -2
     end
 
     return false
@@ -721,71 +756,59 @@ end
 
 function Module:ForceDeliverHumanV3(reason)
     local allKilled = self:_humanAllBossesKilledByModule()
-
     if not (self.State.HumanSequenceStarted and allKilled) then
-        self:_status(
-            "Race V3 Human | Entrega bloqueada",
-            "Ainda nao confirmou as 3 kills"
-        )
+        self:_status("Race V3 Human | Entrega bloqueada", "Ainda nao confirmou as 3 kills")
         return false
     end
 
     self:_status(
         "Race V3 Human | Finalizando V3",
-        tostring(reason or "Diamond + Jeremy + Orbitus abatidos")
+        tostring(reason or "3 bosses concluidos") .. " | indo ao Arowe"
     )
 
-    -- Dá tempo para o servidor registrar a última kill.
     task.wait(1.5)
 
-    for attempt = 1, 12 do
-        if not self:_shouldContinue() then
-            return false
-        end
+    -- Primeiro usa a interacao REAL do NPC.
+    local interacted = self:_interactWenlockNpc()
+    self:_status(
+        "Race V3 Human | Arowe",
+        interacted and "NPC acionado | aguardando servidor" or "Sem prompt detectado | usando fallback"
+    )
 
-        local before = self:WenlockState(false)
+    task.wait(1.2)
 
-        if before == -2 then
-            self:_status(
-                "Race V3 Human | V3 confirmada",
-                "Wenlocktoad(1) = -2"
-            )
-            return true
-        end
+    if self:IsV3() then
+        return true
+    end
 
-        self:_status(
-            "Race V3 Human | Entregando V3",
-            "3 kills nossas confirmadas | estado="
-                .. tostring(before)
-                .. " | tentativa "
-                .. tostring(attempt)
-        )
+    -- Fallback legado, mas sem spam: uma tentativa por ciclo.
+    local before = self:WenlockState(false)
+    warn("[Allan RaceV3 Human] estado antes da entrega = " .. tostring(before))
 
-        -- Se o servidor já expôs 2, entrega normalmente.
-        -- Se retorna nil (como no jogo atual desta conta), ainda tenta 3
-        -- somente porque as 3 kills já foram confirmadas pelo módulo.
-        if before == 2 or before == nil then
-            self:_invokeWenlock("3", false)
-        end
+    if before == 2 or before == nil then
+        local r = self:_invokeWenlock("3", false)
+        warn("[Allan RaceV3 Human] Wenlocktoad(3) => " .. tostring(r))
+    end
 
-        task.wait(0.8)
+    task.wait(1.5)
 
-        local after = self:WenlockState(false)
+    local raceV = self:_readRaceV()
+    local after = self:WenlockState(false)
+    warn(
+        "[Allan RaceV3 Human] pos-entrega | RaceV="
+            .. tostring(raceV)
+            .. " | Wenlock="
+            .. tostring(after)
+    )
 
-        if after == -2 or self:IsV3() then
-            self:_status(
-                "Race V3 Human | V3 confirmada",
-                "Wenlocktoad(1) = " .. tostring(after)
-            )
-            return true
-        end
-
-        task.wait(0.7)
+    if self:IsV3() or after == -2 then
+        self:_status("Race V3 Human | V3 confirmada", "RaceV/Wenlock confirmou")
+        return true
     end
 
     self:_status(
         "Race V3 Human | Entrega pendente",
-        "3 bosses mortos | sem Hop | tentando novamente no proximo ciclo"
+        "3 bosses mortos | sem Hop | nova tentativa no proximo ciclo"
     )
     return false
 end
@@ -1702,6 +1725,7 @@ function Module:ResetSession()
     self.State.SharkBoat = nil
     self.State.LastWenlockState = nil
     self.State.LastStatus = nil
+    self.State.HumanQuestTouched = nil
 end
 
 function Module:Stop()
@@ -1728,6 +1752,19 @@ function Module:Run()
         self.State.CurrentRace = race
 
         self:_status("Race V3 | Iniciando", "Raça: " .. tostring(race))
+
+        -- Human usa fluxo proprio: inicia/finaliza pelo NPC e NAO depende
+        -- do Wenlocktoad(1) antes/depois de cada boss.
+        if race == "Human" then
+            if not self.State.HumanQuestTouched then
+                self:_status("Race V3 Human | Iniciando missao", "Indo ao Arowe uma unica vez")
+                self:_interactWenlockNpc()
+                self:_invokeWenlock("2", false) -- fallback legado, sem depender do retorno
+                self.State.HumanQuestTouched = true
+                task.wait(1)
+            end
+            return self:_runHuman()
+        end
 
         local function RunRaceHandler()
             if race == "Human" then
