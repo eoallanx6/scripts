@@ -1,7 +1,11 @@
 --[[
-    Allan Hub - Race V3 Module
+    Allan Hub - Race V3 Module (V3-only standalone)
     ==========================
     Modulo separado para ser carregado via loadstring pelo script principal.
+
+    Arquitetura:
+      - Este arquivo é a ÚNICA implementação dos objetivos da Race V3.
+      - O Allan Hub principal deve manter a Race V2 local e apenas delegar V3 para este módulo.
 
     Objetivo:
       - Centralizar TODO o fluxo Race V3.
@@ -50,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "1.0.0"
+Module.Version = "1.1.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
