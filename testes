@@ -1,0 +1,1450 @@
+--[[
+    Allan Hub - Race V3 Module
+    ==========================
+    Modulo separado para ser carregado via loadstring pelo script principal.
+
+    Objetivo:
+      - Centralizar TODO o fluxo Race V3.
+      - Human: Diamond + Jeremy + Orbitus (lista atualizada).
+      - Angel/Skypiea: procura outro jogador Angel V3/V4 e mata.
+      - Ghoul: mata jogadores ate Wenlocktoad liberar entrega.
+      - Mink/Rabbit: coleta chests ate liberar.
+      - Shark/Fishman: compra barco, vai ao mar e farma Sea Beast/Ship.
+      - Cyborg: tenta concluir a entrega, com callback opcional para carregar fruta.
+      - Entrega sempre priorizada: Wenlocktoad("1") == 2 -> Wenlocktoad("3").
+      - Hop NUNCA tem prioridade sobre uma entrega pronta.
+
+    Integracao futura (arquivo principal):
+        local RaceV3 = loadstring(game:HttpGet("URL_DO_MODULO"))()
+
+        RaceV3:Bind({
+            MoveTo = function(cf, condition) ... end,
+            SSS = function(pos, condition) ... end,
+            AttackMob = function(target, condition) ... end,
+            AttackPlayer = function(player, condition) ... end,
+            Hop = function(reason) ... end,
+            EquipMelee = function() ... end,
+            SetTask = function(main, sub) ... end,
+            LoadSacrificeFruit = function() ... end, -- opcional, Cyborg
+        })
+
+        -- O scheduler principal chama:
+        RaceV3:Run()
+
+    O modulo tambem tenta se conectar automaticamente aos globals do Allan Hub,
+    mas Bind() e a forma recomendada.
+]]
+
+local Module = {}
+Module.__index = Module
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local CollectionService = game:GetService("CollectionService")
+local Workspace = game:GetService("Workspace")
+
+local LP = Players.LocalPlayer
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local CommF = Remotes:WaitForChild("CommF_")
+local CommE = Remotes:FindFirstChild("CommE")
+
+Module.Version = "1.0.0"
+
+Module.Config = {
+    -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
+    HumanBosses = {"Diamond", "Jeremy", "Orbitus"},
+
+    HumanHopIfSequenceNotStarted = true,
+    HumanWaitAfterBoss = 6,
+    HumanFinalWenlockWait = 30,
+
+    AngelRequireTargetV3OrV4 = true,
+    PlayerKillTimeout = 90,
+    EnablePvPWait = 6,
+
+    MinkChestGoal = 30,
+    ChestReachDistance = 10,
+    ChestStaySeconds = 1.5,
+
+    SharkBoat = "PirateSloop",
+    SharkSea2Dealer = Vector3.new(-5387.28369140625, 8.969104766845703, -716.620361328125),
+    SharkSea2FarmPosition = Vector3.new(-8243.55078125, 0.1520378142595291, 2916.398193359375),
+    SharkSeaEventSearchRadius = 3200,
+    SharkTimeout = 600,
+
+    DefaultTweenSpeed = 300,
+    SeaAttackHeight = 90,
+    SeaSkillDelay = 0.25,
+
+    WenlockPollDelay = 0.5,
+    DeliveryRetries = 12,
+}
+
+Module.State = {
+    Running = false,
+    StopRequested = false,
+
+    HumanSequenceStarted = false,
+    HumanKilled = {},
+
+    CurrentRace = nil,
+    LastWenlockState = nil,
+    LastStatus = nil,
+
+    SharkBoat = nil,
+    SharkKilledEvent = false,
+}
+
+Module.Adapter = {}
+
+local function now()
+    return os.clock()
+end
+
+local function safeCall(fn, ...)
+    if type(fn) ~= "function" then
+        return false, nil
+    end
+    return pcall(fn, ...)
+end
+
+local function getCharacter(player)
+    player = player or LP
+    return player and player.Character
+end
+
+local function getHumanoid(model)
+    if not model then return nil end
+    return model:FindFirstChildOfClass("Humanoid") or model:FindFirstChild("Humanoid")
+end
+
+local function getRoot(model)
+    if not model then return nil end
+    if model:IsA("Player") then
+        model = model.Character
+    end
+    return model and (
+        model:FindFirstChild("HumanoidRootPart")
+        or model:FindFirstChild("RootPart")
+        or model:FindFirstChild("Engine")
+        or model.PrimaryPart
+    )
+end
+
+local function isAlive(model)
+    if not model or not model.Parent then return false end
+
+    local hum = getHumanoid(model)
+    if hum then
+        return hum.Health > 0
+    end
+
+    local health = model:FindFirstChild("Health")
+    if health and health:IsA("ValueBase") then
+        return tonumber(health.Value) and health.Value > 0
+    end
+
+    return getRoot(model) ~= nil
+end
+
+local function localAlive()
+    local char = getCharacter()
+    local hum = getHumanoid(char)
+    return char ~= nil and hum ~= nil and hum.Health > 0
+end
+
+local function distance(a, b)
+    local function pos(v)
+        if typeof(v) == "Vector3" then return v end
+        if typeof(v) == "CFrame" then return v.Position end
+        if typeof(v) == "Instance" then
+            if v:IsA("BasePart") then return v.Position end
+            local r = getRoot(v)
+            return r and r.Position or nil
+        end
+        return nil
+    end
+
+    local pa, pb = pos(a), pos(b)
+    if not pa or not pb then return math.huge end
+    return (pa - pb).Magnitude
+end
+
+local function toCFrame(v)
+    if typeof(v) == "CFrame" then return v end
+    if typeof(v) == "Vector3" then return CFrame.new(v) end
+    if typeof(v) == "Instance" then
+        if v:IsA("BasePart") then return v.CFrame end
+        local r = getRoot(v)
+        return r and r.CFrame or nil
+    end
+    return nil
+end
+
+local function getRaceValue(player)
+    player = player or LP
+    local data = player and player:FindFirstChild("Data")
+    local race = data and data:FindFirstChild("Race")
+    return race and tostring(race.Value) or nil
+end
+
+local function normalizeRace(race)
+    race = tostring(race or "")
+    local aliases = {
+        ["Angel"] = "Skypiea",
+        ["Skypiea"] = "Skypiea",
+        ["Shark"] = "Fishman",
+        ["Fishman"] = "Fishman",
+        ["Rabbit"] = "Mink",
+        ["Mink"] = "Mink",
+        ["Human"] = "Human",
+        ["Ghoul"] = "Ghoul",
+        ["Cyborg"] = "Cyborg",
+    }
+    return aliases[race] or race
+end
+
+local V3SkillByRace = {
+    Human = "Last Resort",
+    Mink = "Agility",
+    Skypiea = "Heavenly Blood",
+    Fishman = "Water Body",
+    Ghoul = "Heightened Senses",
+    Cyborg = "Energy Core",
+}
+
+local function playerHasTool(player, name)
+    if not player or not name then return false end
+    local bp = player:FindFirstChild("Backpack")
+    local char = player.Character
+    return (bp and bp:FindFirstChild(name) ~= nil)
+        or (char and char:FindFirstChild(name) ~= nil)
+end
+
+local function playerRaceTier(player)
+    if not player then return 1 end
+
+    local race = normalizeRace(getRaceValue(player))
+    local data = player:FindFirstChild("Data")
+    local raceObj = data and data:FindFirstChild("Race")
+    local evolved = raceObj and raceObj:FindFirstChild("Evolved")
+
+    if evolved and tonumber(evolved.Value) then
+        local value = tonumber(evolved.Value)
+        if value >= 4 then return 4 end
+        if value >= 3 then return 3 end
+        if value >= 2 then return 2 end
+    end
+
+    local v3Skill = V3SkillByRace[race]
+    if v3Skill and playerHasTool(player, v3Skill) then
+        return 3
+    end
+
+    if evolved then
+        return 2
+    end
+
+    return 1
+end
+
+function Module:_status(main, sub)
+    self.State.LastStatus = {
+        Main = main,
+        Sub = sub,
+        Time = os.clock(),
+    }
+
+    local fn = self.Adapter.SetTask
+    if type(fn) == "function" then
+        pcall(fn, main, sub)
+    else
+        if main then print("[RaceV3] " .. tostring(main)) end
+        if sub then print("[RaceV3] " .. tostring(sub)) end
+    end
+end
+
+function Module:_shouldContinue()
+    return self.State.Running and not self.State.StopRequested
+end
+
+function Module:Bind(adapter)
+    if type(adapter) ~= "table" then
+        return self
+    end
+
+    for k, v in pairs(adapter) do
+        self.Adapter[k] = v
+    end
+
+    return self
+end
+
+function Module:AutoBindFromAllanHub()
+    local env = getgenv and getgenv() or _G
+
+    if not self.Adapter.SetTask and type(env.SetTask) == "function" then
+        self.Adapter.SetTask = function(main, sub)
+            if main then env.SetTask("MainTask", main) end
+            if sub then env.SetTask("SubTask", sub) end
+        end
+    end
+
+    if not self.Adapter.Hop and type(env.Hop) == "function" then
+        self.Adapter.Hop = function(reason)
+            return env.Hop(reason or "Race V3")
+        end
+    end
+
+    if not self.Adapter.SSS and type(env.SSS) == "function" then
+        self.Adapter.SSS = function(pos, condition)
+            return env.SSS(pos, condition)
+        end
+    end
+
+    if not self.Adapter.MoveTo and env.TweenController and type(env.TweenController.Create) == "function" then
+        self.Adapter.MoveTo = function(cf)
+            return env.TweenController.Create(cf)
+        end
+    end
+
+    if not self.Adapter.AttackMob and env.CombatController and type(env.CombatController.Attack) == "function" then
+        self.Adapter.AttackMob = function(target)
+            local name = typeof(target) == "Instance" and target.Name or tostring(target)
+            return env.CombatController.Attack(name)
+        end
+    end
+
+    if not self.Adapter.EquipMelee
+        and env.FunctionsHandler
+        and env.FunctionsHandler.LocalPlayerController
+        and env.FunctionsHandler.LocalPlayerController.Methods
+        and env.FunctionsHandler.LocalPlayerController.Methods.EquipTool
+    then
+        self.Adapter.EquipMelee = function()
+            return env.FunctionsHandler.LocalPlayerController.Methods.EquipTool:Call("Melee")
+        end
+    end
+
+    return self
+end
+
+function Module:_defaultMoveTo(target, condition)
+    local cf = toCFrame(target)
+    local char = getCharacter()
+    local hrp = getRoot(char)
+    if not cf or not hrp then return false end
+
+    local d = (hrp.Position - cf.Position).Magnitude
+    if d <= 5 then
+        return true
+    end
+
+    local speed = self.Config.DefaultTweenSpeed
+    local tween = TweenService:Create(
+        hrp,
+        TweenInfo.new(math.max(d / speed, 0.05), Enum.EasingStyle.Linear),
+        {CFrame = cf}
+    )
+    tween:Play()
+
+    local started = now()
+    while self:_shouldContinue() and localAlive() do
+        if condition and not condition() then
+            tween:Cancel()
+            return false
+        end
+        if distance(hrp, cf) <= 7 then
+            return true
+        end
+        if now() - started > math.max(d / speed + 4, 8) then
+            break
+        end
+        task.wait(0.1)
+    end
+
+    return distance(hrp, cf) <= 12
+end
+
+function Module:_moveTo(target, condition)
+    if type(self.Adapter.MoveTo) == "function" then
+        local ok, result = pcall(self.Adapter.MoveTo, target, condition)
+        if ok then return result ~= false end
+    end
+    return self:_defaultMoveTo(target, condition)
+end
+
+function Module:_sss(position, condition)
+    if type(self.Adapter.SSS) == "function" then
+        pcall(self.Adapter.SSS, position, condition)
+        return true
+    end
+    return false
+end
+
+function Module:_hop(reason)
+    if type(self.Adapter.Hop) ~= "function" then
+        self:_status("Race V3 | Hop necessário", tostring(reason) .. " | adapter Hop não conectado")
+        return false
+    end
+
+    self:_status("Race V3 | Server Hop", reason)
+    pcall(self.Adapter.Hop, reason)
+    return true
+end
+
+function Module:_equipMelee()
+    if type(self.Adapter.EquipMelee) == "function" then
+        pcall(self.Adapter.EquipMelee)
+        return
+    end
+
+    local char = getCharacter()
+    local hum = getHumanoid(char)
+    local bp = LP:FindFirstChild("Backpack")
+    if not hum or not bp then return end
+
+    for _, tool in ipairs(bp:GetChildren()) do
+        if tool:IsA("Tool") and (tool.ToolTip == "Melee" or tool.Name == "Combat") then
+            hum:EquipTool(tool)
+            return
+        end
+    end
+end
+
+function Module:_attackMob(target, condition)
+    if not target then return false end
+
+    if type(self.Adapter.AttackMob) == "function" then
+        local ok, result = pcall(self.Adapter.AttackMob, target, condition)
+        return ok and result ~= false
+    end
+
+    self:_equipMelee()
+    local r = getRoot(target)
+    if r then
+        self:_moveTo(r.CFrame * CFrame.new(0, 20, 0), condition)
+    end
+    return false
+end
+
+function Module:_attackPlayer(player, condition)
+    if not player or player == LP then return false end
+
+    if type(self.Adapter.AttackPlayer) == "function" then
+        local ok, result = pcall(self.Adapter.AttackPlayer, player, condition)
+        return ok and result ~= false
+    end
+
+    -- Fallback: usa o mesmo controlador de mob se o principal aceitar Model.
+    if type(self.Adapter.AttackMob) == "function" and player.Character then
+        local ok, result = pcall(self.Adapter.AttackMob, player.Character, condition)
+        return ok and result ~= false
+    end
+
+    self:_equipMelee()
+    local root = getRoot(player.Character)
+    if root then
+        self:_moveTo(root.CFrame * CFrame.new(0, 8, 4), condition)
+    end
+    return false
+end
+
+function Module:WenlockState()
+    local ok, result = pcall(function()
+        return CommF:InvokeServer("Wenlocktoad", "1")
+    end)
+
+    if ok then
+        self.State.LastWenlockState = result
+        return result
+    end
+
+    return nil
+end
+
+function Module:IsV3()
+    local race = normalizeRace(getRaceValue(LP))
+    local skill = V3SkillByRace[race]
+
+    if skill and playerHasTool(LP, skill) then
+        return true
+    end
+
+    local data = LP:FindFirstChild("Data")
+    local raceObj = data and data:FindFirstChild("Race")
+    local evolved = raceObj and raceObj:FindFirstChild("Evolved")
+    if evolved and tonumber(evolved.Value) and tonumber(evolved.Value) >= 3 then
+        return true
+    end
+
+    return false
+end
+
+function Module:TryDeliverV3()
+    for attempt = 1, self.Config.DeliveryRetries do
+        if not self:_shouldContinue() then return false end
+
+        local state = self:WenlockState()
+
+        if state == 2 then
+            self:_status(
+                "Race V3 | Entregando missão",
+                "Wenlocktoad retornou 2 | tentativa " .. tostring(attempt)
+            )
+
+            pcall(function()
+                CommF:InvokeServer("Wenlocktoad", "3")
+            end)
+
+            task.wait(0.75)
+
+            if self:IsV3() then
+                self:_status("Race V3 | Concluída", "V3 confirmada")
+                return true
+            end
+
+            -- Mesmo se a Tool/skill demorar a replicar, pergunta ao Wenlock de novo.
+            local after = self:WenlockState()
+            if after ~= 2 and after ~= 1 then
+                task.wait(0.4)
+            end
+        elseif state == 1 then
+            return false
+        else
+            task.wait(self.Config.WenlockPollDelay)
+        end
+    end
+
+    return self:IsV3()
+end
+
+function Module:_pollUntilDeliverable(timeoutSeconds, label)
+    local started = now()
+    while self:_shouldContinue() and now() - started < timeoutSeconds do
+        local state = self:WenlockState()
+
+        self:_status(
+            "Race V3 | Aguardando servidor",
+            (label or "Objetivo") .. " | Wenlocktoad=" .. tostring(state)
+        )
+
+        if state == 2 then
+            return self:TryDeliverV3()
+        end
+
+        if self:IsV3() then
+            return true
+        end
+
+        task.wait(self.Config.WenlockPollDelay)
+    end
+
+    return false
+end
+
+function Module:_enablePvPIfNeeded()
+    local pg = LP:FindFirstChild("PlayerGui")
+    local main = pg and pg:FindFirstChild("Main")
+    local disabled = main and main:FindFirstChild("PvpDisabled", true)
+
+    if disabled and disabled.Visible then
+        self:_status("Race V3 | PvP", "Ativando PvP")
+        pcall(function()
+            CommF:InvokeServer("EnablePvp")
+        end)
+        task.wait(self.Config.EnablePvPWait)
+    end
+end
+
+function Module:_isInSafeZone(character)
+    if not character then return true end
+
+    local origin = Workspace:FindFirstChild("_WorldOrigin")
+    local zones = origin and origin:FindFirstChild("SafeZones")
+    if not zones then return false end
+
+    local hum = getHumanoid(character)
+    local root = getRoot(character)
+    if not hum or not root then return true end
+
+    for _, zone in ipairs(zones:GetChildren()) do
+        if zone:IsA("BasePart") and (zone.Position - root.Position).Magnitude <= 400 then
+            if hum.Health >= hum.MaxHealth * 0.80 then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+function Module:_findHumanBoss(name)
+    local enemies = Workspace:FindFirstChild("Enemies")
+    local rep = ReplicatedStorage
+
+    local mob = enemies and enemies:FindFirstChild(name)
+    if mob and isAlive(mob) then return mob end
+
+    local stored = rep:FindFirstChild(name)
+    if stored and stored:IsA("Model") and isAlive(stored) then
+        return stored
+    end
+
+    return nil
+end
+
+function Module:_humanAllBossesAvailable()
+    for _, name in ipairs(self.Config.HumanBosses) do
+        if not self:_findHumanBoss(name) then
+            return false, name
+        end
+    end
+    return true
+end
+
+function Module:_runHuman()
+    -- ENTREGA tem prioridade absoluta antes de qualquer busca/hop.
+    if self:TryDeliverV3() then
+        return true
+    end
+
+    if not self.State.HumanSequenceStarted then
+        local all, missing = self:_humanAllBossesAvailable()
+
+        if all then
+            self.State.HumanSequenceStarted = true
+            self:_status(
+                "Race V3 Human | Sequência iniciada",
+                table.concat(self.Config.HumanBosses, " + ")
+            )
+        else
+            self:_status(
+                "Race V3 Human | Procurando bosses",
+                "Faltando: " .. tostring(missing)
+            )
+
+            -- Como no Snow: hop só antes da sequência começar.
+            if self.Config.HumanHopIfSequenceNotStarted then
+                self:_hop("Race V3 Human | faltando " .. tostring(missing))
+            end
+            return false
+        end
+    end
+
+    for _, bossName in ipairs(self.Config.HumanBosses) do
+        if not self:_shouldContinue() then return false end
+
+        -- Sempre pergunta ao servidor antes de ir para o próximo boss.
+        if self:TryDeliverV3() then
+            return true
+        end
+
+        local boss = self:_findHumanBoss(bossName)
+
+        if boss and isAlive(boss) then
+            self:_status(
+                "Race V3 Human | Matando " .. bossName,
+                "Sequência ativa | hop bloqueado"
+            )
+
+            local root = getRoot(boss)
+            if root then
+                self:_sss(root.Position)
+            end
+
+            local started = now()
+            while self:_shouldContinue() and boss.Parent and isAlive(boss) do
+                self:_attackMob(boss, function()
+                    return self:_shouldContinue()
+                        and boss.Parent ~= nil
+                        and isAlive(boss)
+                end)
+
+                if now() - started > 120 then
+                    break
+                end
+
+                task.wait(0.1)
+            end
+
+            self.State.HumanKilled[bossName] = true
+
+            -- BUG FIX PRINCIPAL:
+            -- depois da kill não decide hop olhando workspace.
+            -- Primeiro consulta Wenlock repetidamente.
+            if self:_pollUntilDeliverable(
+                self.Config.HumanWaitAfterBoss,
+                bossName .. " morto"
+            ) then
+                return true
+            end
+        else
+            self:_status(
+                "Race V3 Human | Boss já ausente",
+                bossName .. " | sequência já começou, NÃO dar hop"
+            )
+        end
+    end
+
+    -- Matou/varreu os três: fica esperando a atualização do servidor.
+    -- Não dá hop nessa fase.
+    return self:_pollUntilDeliverable(
+        self.Config.HumanFinalWenlockWait,
+        "3 bosses concluídos"
+    )
+end
+
+function Module:_targetAngelV3OrV4(player)
+    if not player or player == LP then return false end
+    if normalizeRace(getRaceValue(player)) ~= "Skypiea" then return false end
+    if not player.Character or not isAlive(player.Character) then return false end
+    if self:_isInSafeZone(player.Character) then return false end
+
+    if self.Config.AngelRequireTargetV3OrV4 then
+        return playerRaceTier(player) >= 3
+    end
+
+    return true
+end
+
+function Module:_runPlayerKillRace(raceMode)
+    if self:TryDeliverV3() then
+        return true
+    end
+
+    local candidates = {}
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character and isAlive(player.Character) then
+            if raceMode == "Angel" then
+                if self:_targetAngelV3OrV4(player) then
+                    table.insert(candidates, player)
+                end
+            elseif raceMode == "Ghoul" then
+                if not self:_isInSafeZone(player.Character) then
+                    table.insert(candidates, player)
+                end
+            end
+        end
+    end
+
+    if #candidates == 0 then
+        self:_hop(
+            raceMode == "Angel"
+                and "Race V3 Angel | sem player Angel V3/V4 válido"
+                or "Race V3 Ghoul | sem player válido"
+        )
+        return false
+    end
+
+    table.sort(candidates, function(a, b)
+        local ar = getRoot(a.Character)
+        local br = getRoot(b.Character)
+        local my = getRoot(getCharacter())
+        if not ar or not my then return false end
+        if not br then return true end
+        return (ar.Position - my.Position).Magnitude < (br.Position - my.Position).Magnitude
+    end)
+
+    for _, target in ipairs(candidates) do
+        if not self:_shouldContinue() then return false end
+        if self:TryDeliverV3() then return true end
+
+        local targetChar = target.Character
+        local root = getRoot(targetChar)
+
+        self:_status(
+            "Race V3 " .. raceMode .. " | PvP",
+            "Alvo: " .. target.Name
+                .. " | raça=" .. tostring(getRaceValue(target))
+                .. " | tier=" .. tostring(playerRaceTier(target))
+        )
+
+        if root then
+            self:_sss(root.Position)
+        end
+
+        self:_enablePvPIfNeeded()
+
+        local started = now()
+        local condition = function()
+            return self:_shouldContinue()
+                and target.Parent ~= nil
+                and target.Character == targetChar
+                and isAlive(targetChar)
+                and not self:_isInSafeZone(targetChar)
+                and now() - started < self.Config.PlayerKillTimeout
+        end
+
+        while condition() do
+            self:_attackPlayer(target, condition)
+            task.wait(0.1)
+        end
+
+        if self:_pollUntilDeliverable(4, target.Name .. " finalizado") then
+            return true
+        end
+    end
+
+    -- Ghoul pode precisar de mais de uma kill.
+    -- Angel deve liberar assim que o alvo correto morrer.
+    if raceMode == "Angel" then
+        self:_hop("Race V3 Angel | alvo(s) usados e missão ainda não liberou")
+    else
+        self:_hop("Race V3 Ghoul | precisa de mais jogadores")
+    end
+
+    return false
+end
+
+function Module:_getChests()
+    local result = {}
+
+    local ok, tagged = pcall(function()
+        return CollectionService:GetTagged("_ChestTagged")
+    end)
+
+    if ok and type(tagged) == "table" then
+        for _, chest in ipairs(tagged) do
+            if chest
+                and chest.Parent
+                and not chest:GetAttribute("IsDisabled")
+                and (
+                    not chest:GetAttribute("LastCollect")
+                    or now() - chest:GetAttribute("LastCollect") > 120
+                )
+            then
+                table.insert(result, chest)
+            end
+        end
+    end
+
+    return result
+end
+
+function Module:_runMink()
+    if self:TryDeliverV3() then
+        return true
+    end
+
+    local collected = 0
+
+    while self:_shouldContinue()
+        and collected < self.Config.MinkChestGoal
+    do
+        if self:TryDeliverV3() then return true end
+
+        local chests = self:_getChests()
+
+        if #chests == 0 then
+            self:_status(
+                "Race V3 Mink | Chests",
+                tostring(collected) .. "/" .. tostring(self.Config.MinkChestGoal)
+                    .. " | nenhum chest, hop"
+            )
+            self:_hop("Race V3 Mink | sem chests")
+            return false
+        end
+
+        local myRoot = getRoot(getCharacter())
+        table.sort(chests, function(a, b)
+            if not myRoot then return false end
+            return distance(a, myRoot) < distance(b, myRoot)
+        end)
+
+        local chest = chests[1]
+        local cf = toCFrame(chest)
+
+        if cf then
+            self:_status(
+                "Race V3 Mink | Coletando chest",
+                tostring(collected + 1) .. "/" .. tostring(self.Config.MinkChestGoal)
+            )
+
+            self:_moveTo(cf)
+
+            local reachedAt = nil
+            local deadline = now() + 8
+
+            while self:_shouldContinue()
+                and chest
+                and chest.Parent
+                and now() < deadline
+            do
+                local charRoot = getRoot(getCharacter())
+                if charRoot and distance(charRoot, chest) <= self.Config.ChestReachDistance then
+                    reachedAt = reachedAt or now()
+
+                    if now() - reachedAt >= self.Config.ChestStaySeconds then
+                        pcall(function()
+                            chest:SetAttribute("LastCollect", now())
+                        end)
+                        break
+                    end
+                else
+                    reachedAt = nil
+                    self:_moveTo(cf)
+                end
+
+                local hum = getHumanoid(getCharacter())
+                if hum then
+                    pcall(function()
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    end)
+                end
+
+                task.wait(0.1)
+            end
+
+            collected += 1
+
+            if self:_pollUntilDeliverable(1.5, "Chest " .. tostring(collected)) then
+                return true
+            end
+        else
+            pcall(function()
+                chest:SetAttribute("LastCollect", now())
+            end)
+        end
+    end
+
+    return self:_pollUntilDeliverable(15, "Chests concluídos")
+end
+
+function Module:_getBoat()
+    local boats = Workspace:FindFirstChild("Boats")
+    if not boats then return nil end
+
+    for _, boat in ipairs(boats:GetChildren()) do
+        local owner = boat:FindFirstChild("Owner")
+        local seat = boat:FindFirstChild("VehicleSeat")
+
+        if owner and owner.Value == LP and seat then
+            return boat
+        end
+    end
+
+    return nil
+end
+
+function Module:_boatValid(boat)
+    return boat
+        and boat.Parent
+        and boat:FindFirstChild("VehicleSeat") ~= nil
+end
+
+function Module:_moveBoatTo(boat, targetPosition, condition)
+    if not self:_boatValid(boat) then return false end
+
+    if type(self.Adapter.MoveBoatTo) == "function" then
+        local ok, result = pcall(self.Adapter.MoveBoatTo, boat, targetPosition, condition)
+        if ok then return result ~= false end
+    end
+
+    local seat = boat.VehicleSeat
+    local d = (seat.Position - targetPosition).Magnitude
+    local speed = 350
+
+    local tween = TweenService:Create(
+        seat,
+        TweenInfo.new(math.max(d / speed, 0.1), Enum.EasingStyle.Linear),
+        {CFrame = CFrame.new(targetPosition)}
+    )
+    tween:Play()
+
+    local started = now()
+
+    while self:_shouldContinue()
+        and self:_boatValid(boat)
+        and now() - started < d / speed + 8
+    do
+        if condition and not condition() then
+            tween:Cancel()
+            return false
+        end
+
+        if (seat.Position - targetPosition).Magnitude <= 80 then
+            return true
+        end
+
+        task.wait(0.15)
+    end
+
+    return self:_boatValid(boat)
+        and (seat.Position - targetPosition).Magnitude <= 120
+end
+
+function Module:_ensureSharkBoat()
+    local boat = self:_getBoat()
+    if boat and boat.Name == self.Config.SharkBoat then
+        self.State.SharkBoat = boat
+        return boat
+    end
+
+    self:_status(
+        "Race V3 Shark | Barco",
+        "Comprando " .. self.Config.SharkBoat
+    )
+
+    self:_sss(self.Config.SharkSea2Dealer)
+    self:_moveTo(CFrame.new(self.Config.SharkSea2Dealer))
+
+    pcall(function()
+        CommF:InvokeServer("BuyBoat", self.Config.SharkBoat)
+    end)
+
+    local deadline = now() + 10
+    repeat
+        task.wait(0.25)
+        boat = self:_getBoat()
+        if boat then break end
+    until now() >= deadline
+
+    if boat then
+        self.State.SharkBoat = boat
+        return boat
+    end
+
+    return nil
+end
+
+function Module:_sitInBoat(boat)
+    if not self:_boatValid(boat) then return false end
+
+    local char = getCharacter()
+    local hum = getHumanoid(char)
+    if not hum then return false end
+
+    if hum.SeatPart == boat.VehicleSeat then
+        return true
+    end
+
+    hum.Sit = false
+
+    self:_moveTo(boat.VehicleSeat.CFrame + Vector3.new(0, 3, 0))
+
+    local deadline = now() + 6
+    while self:_shouldContinue()
+        and self:_boatValid(boat)
+        and now() < deadline
+    do
+        pcall(function()
+            boat.VehicleSeat:Sit(hum)
+        end)
+
+        if hum.SeatPart == boat.VehicleSeat then
+            return true
+        end
+
+        task.wait(0.2)
+    end
+
+    return hum.SeatPart == boat.VehicleSeat
+end
+
+function Module:_isSeaEventAlive(model)
+    if not model or not model.Parent then return false end
+
+    local health = model:FindFirstChild("Health")
+    if health and health:IsA("ValueBase") then
+        return tonumber(health.Value) ~= nil and health.Value > 0
+    end
+
+    return isAlive(model)
+end
+
+function Module:_findSeaEvent()
+    local myRoot = getRoot(getCharacter())
+    if not myRoot then return nil end
+
+    local best, bestDist, bestType = nil, math.huge, nil
+
+    local seaBeasts = Workspace:FindFirstChild("SeaBeasts")
+    if seaBeasts then
+        for _, event in ipairs(seaBeasts:GetChildren()) do
+            if string.find(event.Name, "SeaBeast")
+                and self:_isSeaEventAlive(event)
+            then
+                local root = getRoot(event)
+                local d = root and (root.Position - myRoot.Position).Magnitude or math.huge
+                if d <= self.Config.SharkSeaEventSearchRadius and d < bestDist then
+                    best = event
+                    bestDist = d
+                    bestType = "SeaBeast"
+                end
+            end
+        end
+    end
+
+    local enemies = Workspace:FindFirstChild("Enemies")
+    if enemies then
+        local shipNames = {
+            PirateBrigade = true,
+            PirateBasic = true,
+            FishBoat = true,
+            PirateGrandBrigade = true,
+        }
+
+        for _, event in ipairs(enemies:GetChildren()) do
+            if shipNames[event.Name]
+                and event:FindFirstChild("Engine")
+                and self:_isSeaEventAlive(event)
+            then
+                local d = (event.Engine.Position - myRoot.Position).Magnitude
+                if d <= self.Config.SharkSeaEventSearchRadius and d < bestDist then
+                    best = event
+                    bestDist = d
+                    bestType = "Ship"
+                end
+            end
+        end
+    end
+
+    return best, bestType
+end
+
+function Module:_defaultPressSkills(target)
+    local char = getCharacter()
+    local hum = getHumanoid(char)
+    local bp = LP:FindFirstChild("Backpack")
+    local root = getRoot(target)
+
+    if not char or not hum or not bp or not root then return end
+
+    -- Compatibilidade com hooks de silent aim já existentes no hub.
+    local env = getgenv and getgenv() or _G
+    env.SilentAimPos = true
+    env.PosToHook = root.Position
+
+    local preferredTips = {"Blox Fruit", "Melee", "Sword", "Gun"}
+    local keys = {"Z", "X", "C", "V", "F"}
+
+    for _, tooltip in ipairs(preferredTips) do
+        if not self:_shouldContinue() or not self:_isSeaEventAlive(target) then break end
+
+        local tool = nil
+
+        for _, t in ipairs(char:GetChildren()) do
+            if t:IsA("Tool") and t.ToolTip == tooltip then
+                tool = t
+                break
+            end
+        end
+
+        if not tool then
+            for _, t in ipairs(bp:GetChildren()) do
+                if t:IsA("Tool") and t.ToolTip == tooltip then
+                    tool = t
+                    break
+                end
+            end
+        end
+
+        if tool and tool.Parent == bp then
+            pcall(function()
+                hum:EquipTool(tool)
+            end)
+            task.wait(0.1)
+        end
+
+        if tool then
+            for _, key in ipairs(keys) do
+                if not self:_isSeaEventAlive(target) then break end
+
+                pcall(function()
+                    VirtualInputManager:SendKeyEvent(true, key, false, game)
+                    task.wait(0.05)
+                    VirtualInputManager:SendKeyEvent(false, key, false, game)
+                end)
+
+                task.wait(self.Config.SeaSkillDelay)
+            end
+        end
+    end
+end
+
+function Module:_attackSeaEvent(target, eventType)
+    if not target then return false end
+
+    local condition = function()
+        return self:_shouldContinue()
+            and target.Parent ~= nil
+            and self:_isSeaEventAlive(target)
+    end
+
+    if type(self.Adapter.AttackSeaTarget) == "function" then
+        local ok, result = pcall(
+            self.Adapter.AttackSeaTarget,
+            target,
+            eventType,
+            condition
+        )
+        if ok then return result ~= false end
+    end
+
+    -- Fallback focado: sai do barco, fica acima do evento e spamma skills.
+    local hum = getHumanoid(getCharacter())
+    if hum then hum.Sit = false end
+
+    local started = now()
+
+    while condition() and now() - started < 120 do
+        local root = getRoot(target)
+
+        if root then
+            self:_moveTo(
+                root.CFrame * CFrame.new(0, self.Config.SeaAttackHeight, -40),
+                condition
+            )
+        end
+
+        self:_defaultPressSkills(target)
+        task.wait(0.1)
+    end
+
+    return not self:_isSeaEventAlive(target)
+end
+
+function Module:_runShark()
+    if self:TryDeliverV3() then
+        return true
+    end
+
+    local started = now()
+
+    while self:_shouldContinue()
+        and now() - started < self.Config.SharkTimeout
+    do
+        local state = self:WenlockState()
+
+        if state == 2 then
+            return self:TryDeliverV3()
+        end
+
+        if state ~= 1 and self:IsV3() then
+            return true
+        end
+
+        local boat = self:_ensureSharkBoat()
+
+        if not boat then
+            self:_status(
+                "Race V3 Shark | Barco",
+                "Não conseguiu comprar/spawnar barco; tentando novamente"
+            )
+            task.wait(2)
+            continue
+        end
+
+        self:_status(
+            "Race V3 Shark | Indo ao mar",
+            "Barco: " .. tostring(boat.Name)
+        )
+
+        self:_sitInBoat(boat)
+
+        -- Snow usa esta região do Sea 2 para gerar/farmar eventos.
+        self:_moveBoatTo(
+            boat,
+            self.Config.SharkSea2FarmPosition,
+            function()
+                return self:_shouldContinue()
+                    and self:WenlockState() ~= 2
+            end
+        )
+
+        -- Procura eventos continuamente; ao matar qualquer um,
+        -- consulta Wenlock antes de fazer qualquer outra coisa.
+        local scanDeadline = now() + 90
+
+        while self:_shouldContinue() and now() < scanDeadline do
+            if self:TryDeliverV3() then
+                return true
+            end
+
+            local event, eventType = self:_findSeaEvent()
+
+            if event then
+                self:_status(
+                    "Race V3 Shark | Sea Event",
+                    "Atacando " .. tostring(eventType) .. ": " .. tostring(event.Name)
+                )
+
+                self:_attackSeaEvent(event, eventType)
+                self.State.SharkKilledEvent = true
+
+                if self:_pollUntilDeliverable(8, "Sea Event concluído") then
+                    return true
+                end
+
+                -- Se ainda retornou 1, volta ao barco e continua procurando.
+                boat = self:_getBoat()
+                if boat then
+                    self:_sitInBoat(boat)
+                    self:_moveBoatTo(boat, self.Config.SharkSea2FarmPosition)
+                end
+            else
+                self:_status(
+                    "Race V3 Shark | Sea Event",
+                    "Aguardando Sea Beast/Ship aparecer"
+                )
+
+                -- Mantém o barco na região de spawn.
+                boat = self:_getBoat()
+                if boat and self:_boatValid(boat) then
+                    if (boat.VehicleSeat.Position - self.Config.SharkSea2FarmPosition).Magnitude > 300 then
+                        self:_sitInBoat(boat)
+                        self:_moveBoatTo(boat, self.Config.SharkSea2FarmPosition)
+                    end
+                end
+            end
+
+            task.wait(1)
+        end
+    end
+
+    if self.State.SharkKilledEvent then
+        -- Já matou evento: não hopa antes de dar uma última janela ao Wenlock.
+        return self:_pollUntilDeliverable(20, "Shark | evento já morto")
+    end
+
+    self:_hop("Race V3 Shark | nenhum Sea Event apareceu")
+    return false
+end
+
+function Module:_runCyborg()
+    if self:TryDeliverV3() then
+        return true
+    end
+
+    self:_status(
+        "Race V3 Cyborg",
+        "Preparando entrega / fruta de sacrifício"
+    )
+
+    if type(self.Adapter.LoadSacrificeFruit) == "function" then
+        pcall(self.Adapter.LoadSacrificeFruit)
+        task.wait(0.5)
+    end
+
+    -- O Snow chama Wenlocktoad 3 diretamente nesta fase.
+    pcall(function()
+        CommF:InvokeServer("Wenlocktoad", "3")
+    end)
+
+    task.wait(1)
+
+    if self:IsV3() then
+        return true
+    end
+
+    return self:_pollUntilDeliverable(8, "Cyborg")
+end
+
+function Module:ResetSession()
+    self.State.HumanSequenceStarted = false
+    self.State.HumanKilled = {}
+    self.State.SharkKilledEvent = false
+    self.State.SharkBoat = nil
+    self.State.LastWenlockState = nil
+    self.State.LastStatus = nil
+end
+
+function Module:Stop()
+    self.State.StopRequested = true
+end
+
+function Module:Run()
+    if self.State.Running then
+        return false, "ALREADY_RUNNING"
+    end
+
+    self:AutoBindFromAllanHub()
+
+    self.State.Running = true
+    self.State.StopRequested = false
+
+    local ok, result = xpcall(function()
+        if self:IsV3() then
+            self:_status("Race V3", "Já desbloqueada")
+            return true
+        end
+
+        local race = normalizeRace(getRaceValue(LP))
+        self.State.CurrentRace = race
+
+        self:_status("Race V3 | Iniciando", "Raça: " .. tostring(race))
+
+        -- Primeiro consulta Wenlock. Isso é a "máquina de estados" principal,
+        -- igual à estrutura usada no Snow.
+        local state = self:WenlockState()
+
+        if state == 0 then
+            self:_status("Race V3 | Wenlocktoad", "Iniciando missão")
+            pcall(function()
+                CommF:InvokeServer("Wenlocktoad", "2")
+            end)
+            task.wait(0.8)
+            state = self:WenlockState()
+        end
+
+        if state == 2 then
+            return self:TryDeliverV3()
+        end
+
+        if state ~= 1 then
+            self:_status(
+                "Race V3 | Wenlocktoad",
+                "Estado inesperado: " .. tostring(state)
+            )
+            return false
+        end
+
+        if race == "Human" then
+            return self:_runHuman()
+        elseif race == "Skypiea" then
+            return self:_runPlayerKillRace("Angel")
+        elseif race == "Ghoul" then
+            return self:_runPlayerKillRace("Ghoul")
+        elseif race == "Mink" then
+            return self:_runMink()
+        elseif race == "Fishman" then
+            return self:_runShark()
+        elseif race == "Cyborg" then
+            return self:_runCyborg()
+        end
+
+        self:_status(
+            "Race V3",
+            "Raça sem handler: " .. tostring(race)
+        )
+        return false
+    end, debug.traceback)
+
+    self.State.Running = false
+
+    if not ok then
+        warn("[Allan RaceV3 Module] " .. tostring(result))
+        self:_status("Race V3 | Erro", tostring(result))
+        return false, result
+    end
+
+    return result
+end
+
+function Module:Step()
+    -- Alias para integração com schedulers que chamam uma função por tarefa.
+    return self:Run()
+end
+
+-- Instância única retornada pelo loadstring.
+local instance = setmetatable({}, Module)
+instance.Config = Module.Config
+instance.State = Module.State
+instance.Adapter = Module.Adapter
+instance.Version = Module.Version
+
+return instance
