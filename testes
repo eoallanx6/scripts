@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "1.5.0"
+Module.Version = "1.6.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -584,34 +584,51 @@ function Module:_goToWenlock()
 end
 
 function Module:_invokeWenlock(action, requireNear)
-    if requireNear then
-        self:_goToWenlock()
-        task.wait(0.2)
+    -- Usa sempre a referência ATUAL do RemoteFunction.
+    -- Não depende do CommF capturado quando o loadstring carregou.
+    local currentRemotes = ReplicatedStorage:FindFirstChild("Remotes")
+    local currentCommF = currentRemotes and currentRemotes:FindFirstChild("CommF_")
+
+    if not currentCommF then
+        warn(
+            "[Allan RaceV3] Wenlocktoad("
+                .. tostring(action)
+                .. ") => REMOTE_NAO_ENCONTRADO"
+        )
+        return nil
     end
 
     local ok, result = pcall(function()
-        return CommF:InvokeServer("Wenlocktoad", tostring(action))
+        return currentCommF:InvokeServer("Wenlocktoad", tostring(action))
     end)
+
+    if ok then
+        warn(
+            "[Allan RaceV3] Wenlocktoad("
+                .. tostring(action)
+                .. ") => "
+                .. tostring(result)
+        )
+
+        if tostring(action) == "1" then
+            self.State.LastWenlockState = result
+        end
+
+        return result
+    end
 
     warn(
         "[Allan RaceV3] Wenlocktoad("
             .. tostring(action)
-            .. ") => "
-            .. tostring(ok and result or ("ERROR: " .. tostring(result)))
+            .. ") FALHOU | erro="
+            .. tostring(result)
     )
-
-    if ok then
-        if tostring(action) == "1" then
-            self.State.LastWenlockState = result
-        end
-        return result
-    end
 
     return nil
 end
 
 function Module:WenlockState(requireNear)
-    return self:_invokeWenlock("1", requireNear == true)
+    return self:_invokeWenlock("1", false)
 end
 
 function Module:IsV3()
@@ -669,87 +686,64 @@ function Module:TryDeliverV3()
         return true
     end
 
-    self:_goToWenlock()
+    local state = self:WenlockState(false)
 
-    for attempt = 1, self.Config.DeliveryRetries do
-        if not self:_shouldContinue() then
-            return false
-        end
-
-        local state = self:WenlockState(true)
-
-        if state == -2 then
-            self:_status("Race V3 | Concluida", "Wenlocktoad(1) = -2")
-            return true
-        end
-
-        if state == 2 then
-            self:_status(
-                "Race V3 | Entregando missao",
-                "Wenlock=2 | tentativa " .. tostring(attempt)
-            )
-
-            self:_invokeWenlock("3", true)
-            task.wait(self.Config.WenlockDeliveryDelay)
-
-            local confirm = self:WenlockState(true)
-            if confirm == -2 or self:IsV3() then
-                self:_status(
-                    "Race V3 | Concluida",
-                    "Wenlocktoad(1) = " .. tostring(confirm)
-                )
-                return true
-            end
-        elseif state == 1 then
-            return false
-        elseif state == 0 then
-            return false
-        elseif state == nil then
-            self:_status(
-                "Race V3 | Wenlocktoad",
-                "Retorno nil perto do NPC | tentativa " .. tostring(attempt)
-            )
-        end
-
-        task.wait(self.Config.WenlockPollDelay)
+    if state == -2 then
+        self:_status(
+            "Race V3 | Concluida",
+            "Wenlocktoad(1) = -2"
+        )
+        return true
     end
 
-    return self:IsV3()
+    if state == 2 then
+        self:_status(
+            "Race V3 | Entregando missao",
+            "Servidor liberou entrega | Wenlocktoad(3)"
+        )
+
+        self:_invokeWenlock("3", false)
+        task.wait(self.Config.WenlockDeliveryDelay)
+
+        local after = self:WenlockState(false)
+
+        if after == -2 or self:IsV3() then
+            self:_status(
+                "Race V3 | Concluida",
+                "Wenlocktoad(1) = " .. tostring(after)
+            )
+            return true
+        end
+    end
+
+    return false
 end
 
 function Module:ForceDeliverHumanV3(reason)
     local allKilled = self:_humanAllBossesKilledByModule()
 
-    local stateFar = self:WenlockState(false)
-    if stateFar ~= 2
-        and not (self.State.HumanSequenceStarted and allKilled)
-    then
+    if not (self.State.HumanSequenceStarted and allKilled) then
         self:_status(
             "Race V3 Human | Entrega bloqueada",
-            "Ainda nao confirmou Diamond + Jeremy + Orbitus"
+            "Ainda nao confirmou as 3 kills"
         )
         return false
     end
 
     self:_status(
-        "Race V3 Human | Indo entregar V3",
-        tostring(reason or "3 bosses concluidos") .. " | indo ao Arowe"
+        "Race V3 Human | Finalizando V3",
+        tostring(reason or "Diamond + Jeremy + Orbitus abatidos")
     )
 
-    if not self:_goToWenlock() then
-        self:_status(
-            "Race V3 Human | Entrega",
-            "Nao encontrou/chegou no Arowe"
-        )
-        return false
-    end
+    -- Dá tempo para o servidor registrar a última kill.
+    task.wait(1.5)
 
-    for attempt = 1, 15 do
+    for attempt = 1, 12 do
         if not self:_shouldContinue() then
             return false
         end
 
-        local before = self:WenlockState(true)
+        local before = self:WenlockState(false)
 
         if before == -2 then
             self:_status(
@@ -761,21 +755,22 @@ function Module:ForceDeliverHumanV3(reason)
 
         self:_status(
             "Race V3 Human | Entregando V3",
-            "3 kills confirmadas | Wenlock="
+            "3 kills nossas confirmadas | estado="
                 .. tostring(before)
                 .. " | tentativa "
                 .. tostring(attempt)
         )
 
-        local deliverResult = self:_invokeWenlock("3", true)
-        warn(
-            "[Allan RaceV3 Human] Wenlocktoad(3) => "
-                .. tostring(deliverResult)
-        )
+        -- Se o servidor já expôs 2, entrega normalmente.
+        -- Se retorna nil (como no jogo atual desta conta), ainda tenta 3
+        -- somente porque as 3 kills já foram confirmadas pelo módulo.
+        if before == 2 or before == nil then
+            self:_invokeWenlock("3", false)
+        end
 
-        task.wait(self.Config.WenlockDeliveryDelay)
+        task.wait(0.8)
 
-        local after = self:WenlockState(true)
+        local after = self:WenlockState(false)
 
         if after == -2 or self:IsV3() then
             self:_status(
@@ -785,12 +780,12 @@ function Module:ForceDeliverHumanV3(reason)
             return true
         end
 
-        task.wait(0.5)
+        task.wait(0.7)
     end
 
     self:_status(
-        "Race V3 Human | Entrega nao confirmou",
-        "Sem Hop | tentando novamente no proximo ciclo"
+        "Race V3 Human | Entrega pendente",
+        "3 bosses mortos | sem Hop | tentando novamente no proximo ciclo"
     )
     return false
 end
@@ -798,7 +793,7 @@ end
 function Module:_pollUntilDeliverable(timeoutSeconds, label)
     local started = now()
     while self:_shouldContinue() and now() - started < timeoutSeconds do
-        local state = self:WenlockState(true)
+        local state = self:WenlockState(false)
 
         self:_status(
             "Race V3 | Aguardando servidor",
@@ -889,9 +884,15 @@ function Module:_humanAllBossesKilledByModule()
 end
 
 function Module:_runHuman()
-    -- ENTREGA tem prioridade absoluta antes de qualquer busca/hop.
-    if self:TryDeliverV3() then
-        return true
+    -- HUMAN V3:
+    -- Depois que a sequência começou, NÃO consulta Wenlock entre bosses.
+    -- Faz Diamond -> Jeremy -> Orbitus direto.
+    local allKilled = self:_humanAllBossesKilledByModule()
+
+    if self.State.HumanSequenceStarted and allKilled then
+        return self:ForceDeliverHumanV3(
+            "Diamond + Jeremy + Orbitus abatidos"
+        )
     end
 
     if not self.State.HumanSequenceStarted then
@@ -899,9 +900,11 @@ function Module:_runHuman()
 
         if all then
             self.State.HumanSequenceStarted = true
+            self.State.HumanKilled = {}
+
             self:_status(
-                "Race V3 Human | Sequência iniciada",
-                table.concat(self.Config.HumanBosses, " + ")
+                "Race V3 Human | Sequencia iniciada",
+                "Diamond -> Jeremy -> Orbitus | sem desvio para Wenlock"
             )
         else
             self:_status(
@@ -909,139 +912,139 @@ function Module:_runHuman()
                 "Faltando: " .. tostring(missing)
             )
 
-            -- Como no Snow: hop só antes da sequência começar.
             if self.Config.HumanHopIfSequenceNotStarted then
-                self:_hop("Race V3 Human | faltando " .. tostring(missing))
+                self:_hop(
+                    "Race V3 Human | faltando "
+                        .. tostring(missing)
+                        .. " antes da sequencia"
+                )
             end
+
             return false
         end
     end
 
     for _, bossName in ipairs(self.Config.HumanBosses) do
-        if not self:_shouldContinue() then return false end
+        if not self:_shouldContinue() then
+            return false
+        end
 
-        -- Sempre pergunta ao servidor antes de ir para o próximo boss.
-        if self:TryDeliverV3() then
-            return true
+        -- Boss já confirmado nesta mesma execução: segue para o próximo.
+        if self.State.HumanKilled[bossName] == true then
+            continue
         end
 
         local boss = self:_findHumanBoss(bossName)
 
-        if boss and isAlive(boss) then
+        if not (boss and isAlive(boss)) then
+            -- Depois que a sequência começou, ausência não faz o script ir
+            -- para Wenlock. Apenas aguarda/retorna para tentar novamente.
             self:_status(
-                "Race V3 Human | Matando " .. bossName,
-                "Boss encontrado vivo | precisa morrer durante nosso ataque"
-            )
-
-            local root = getRoot(boss)
-            if root then
-                self:_sss(root.Position)
-            end
-
-            local trackedBoss = boss
-            local trackedHum = getHumanoid(trackedBoss)
-            local trackedHealth = trackedBoss:FindFirstChild("Health")
-            local started = now()
-            local engaged = false
-            local attackCalls = 0
-            local timedOut = false
-
-            while self:_shouldContinue()
-                and trackedBoss
-                and trackedBoss.Parent
-                and isAlive(trackedBoss)
-            do
-                engaged = true
-                attackCalls += 1
-
-                self:_attackMob(trackedBoss, function()
-                    return self:_shouldContinue()
-                        and trackedBoss ~= nil
-                        and trackedBoss.Parent ~= nil
-                        and isAlive(trackedBoss)
-                end)
-
-                if now() - started > 120 then
-                    timedOut = true
-                    break
-                end
-
-                task.wait(0.1)
-            end
-
-            local diedDuringOurEngagement = false
-
-            if engaged and attackCalls > 0 and not timedOut then
-                if trackedHum then
-                    diedDuringOurEngagement = trackedHum.Health <= 0
-                elseif trackedHealth and trackedHealth:IsA("ValueBase") then
-                    diedDuringOurEngagement =
-                        tonumber(trackedHealth.Value) ~= nil
-                        and trackedHealth.Value <= 0
-                else
-                    -- Só aceita remoção da instância se nós já estávamos
-                    -- efetivamente atacando esse boss vivo.
-                    diedDuringOurEngagement =
-                        trackedBoss.Parent == nil
-                        and (now() - started) > 0.5
-                end
-            end
-
-            if diedDuringOurEngagement then
-                self.State.HumanKilled[bossName] = true
-
-                self:_status(
-                    "Race V3 Human | Kill registrada",
-                    bossName .. " morreu enquanto estávamos atacando"
-                )
-
-                if self:_pollUntilDeliverable(
-                    self.Config.HumanWaitAfterBoss,
-                    bossName .. " morto durante nosso ataque"
-                ) then
-                    return true
-                end
-            else
-                -- Não conta boss que sumiu, morreu antes, ou cujo combate
-                -- não terminou de forma confirmada enquanto nós atacávamos.
-                self.State.HumanKilled[bossName] = nil
-
-                self:_status(
-                    "Race V3 Human | Kill NÃO confirmada",
-                    bossName .. " | não conta como nossa kill"
-                )
-                return false
-            end
-        else
-            -- Boss já morto/ausente quando chegamos: NÃO conta.
-            self.State.HumanKilled[bossName] = nil
-
-            self:_status(
-                "Race V3 Human | Boss ausente",
-                bossName .. " já não estava vivo | não conta como nossa kill"
+                "Race V3 Human | Aguardando " .. bossName,
+                "Sequencia ativa | sem Wenlock e sem entrega intermediaria"
             )
             return false
         end
-    end
 
-    -- Só pode fazer entrega forçada se ESTE módulo realmente registrou
-    -- a morte dos três bosses durante a sequência atual.
-    local allKilled, missingKill = self:_humanAllBossesKilledByModule()
-
-    if self.State.HumanSequenceStarted and allKilled then
         self:_status(
-            "Race V3 Human | 3 bosses abatidos",
-            "Diamond + Jeremy + Orbitus mortos durante nosso ataque | entregando V3"
+            "Race V3 Human | Matando " .. bossName,
+            "Kill "
+                .. tostring(
+                    (bossName == "Diamond" and 1)
+                    or (bossName == "Jeremy" and 2)
+                    or 3
+                )
+                .. "/3"
         )
-        return self:ForceDeliverHumanV3("Diamond + Jeremy + Orbitus abatidos")
+
+        local root = getRoot(boss)
+        if root then
+            self:_sss(root.Position)
+        end
+
+        local trackedBoss = boss
+        local trackedHum = getHumanoid(trackedBoss)
+        local trackedHealth = trackedBoss:FindFirstChild("Health")
+        local started = now()
+        local engaged = false
+        local attackCalls = 0
+        local timedOut = false
+
+        while self:_shouldContinue()
+            and trackedBoss
+            and trackedBoss.Parent
+            and isAlive(trackedBoss)
+        do
+            engaged = true
+            attackCalls += 1
+
+            self:_attackMob(trackedBoss, function()
+                return self:_shouldContinue()
+                    and trackedBoss ~= nil
+                    and trackedBoss.Parent ~= nil
+                    and isAlive(trackedBoss)
+            end)
+
+            if now() - started > 120 then
+                timedOut = true
+                break
+            end
+
+            task.wait(0.1)
+        end
+
+        local killedByOurEngagement = false
+
+        if engaged and attackCalls > 0 and not timedOut then
+            if trackedHum then
+                killedByOurEngagement = trackedHum.Health <= 0
+            elseif trackedHealth and trackedHealth:IsA("ValueBase") then
+                killedByOurEngagement =
+                    tonumber(trackedHealth.Value) ~= nil
+                    and trackedHealth.Value <= 0
+            else
+                killedByOurEngagement =
+                    trackedBoss.Parent == nil
+                    and (now() - started) > 0.5
+            end
+        end
+
+        if not killedByOurEngagement then
+            self.State.HumanKilled[bossName] = nil
+
+            self:_status(
+                "Race V3 Human | Kill nao confirmada",
+                bossName .. " nao contou como nossa kill"
+            )
+            return false
+        end
+
+        self.State.HumanKilled[bossName] = true
+
+        local doneCount = 0
+        for _, required in ipairs(self.Config.HumanBosses) do
+            if self.State.HumanKilled[required] == true then
+                doneCount += 1
+            end
+        end
+
+        self:_status(
+            "Race V3 Human | Kill registrada",
+            bossName .. " | " .. tostring(doneCount) .. "/3"
+        )
+
+        -- IMPORTANTE: não chama Wenlock aqui.
+        task.wait(0.8)
     end
 
-    -- Nunca chama Wenlocktoad(3) apenas porque um boss está ausente ou
-    -- porque Wenlocktoad(1) retornou nil.
-    self:_status(
-        "Race V3 Human | Objetivo incompleto",
-        "Ainda falta confirmar kill: " .. tostring(missingKill)
-    )
+    local finalAllKilled = self:_humanAllBossesKilledByModule()
+
+    if finalAllKilled then
+        return self:ForceDeliverHumanV3(
+            "Diamond + Jeremy + Orbitus abatidos por nos"
+        )
+    end
+
     return false
 end
 
@@ -1760,7 +1763,7 @@ function Module:Run()
         if state == 0 then
             self:_status("Race V3 | Wenlocktoad", "Iniciando missão")
             pcall(function()
-                self:_invokeWenlock("2", true)
+                self:_invokeWenlock("2", false)
             end)
             task.wait(0.8)
             state = self:WenlockState()
@@ -1786,7 +1789,7 @@ function Module:Run()
                 -- que a quest esteja ativa; se já estiver ativa o servidor ignora.
                 if attempt == 1 then
                     pcall(function()
-                        self:_invokeWenlock("2", true)
+                        self:_invokeWenlock("2", false)
                     end)
                 end
 
