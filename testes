@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "2.4.0"
+Module.Version = "2.5.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -937,11 +937,10 @@ function Module:_getHumanBoss(name)
     -- 1) Já renderizado.
     local existing = self:_findHumanBoss(name)
     if existing then
-        return existing
+        return existing, true
     end
 
-    -- 2) O principal consegue saber se o spawn está Active mesmo quando
-    -- o Model ainda não apareceu em workspace.Enemies.
+    -- 2) Confirma se o spawn está realmente ativo no servidor.
     local spawnActive = false
 
     if type(self.Adapter.CheckBossSpawn) == "function" then
@@ -950,30 +949,38 @@ function Module:_getHumanBoss(name)
     end
 
     if not spawnActive then
-        return nil
+        return nil, false
     end
 
+    -- IMPORTANTE:
+    -- Se spawnActive == true, esse boss EXISTE neste servidor.
+    -- Mesmo que o Model ainda não tenha streamado, NÃO pode dar Hop.
     self:_status(
         "Race V3 Human | " .. tostring(name) .. " ativo",
-        "Indo ate o spawn e carregando o boss"
+        "Tween ate o spawn | sem Hop enquanto Active"
     )
 
-    -- 3) GetMainEnemy do principal:
-    -- vai ao EnemySpawn, força streaming e espera o Model real aparecer.
     if type(self.Adapter.GetMainEnemy) == "function" then
         local ok, mob = pcall(
             self.Adapter.GetMainEnemy,
             name,
-            15
+            45
         )
 
         if ok and mob and isAlive(mob) then
-            return mob
+            return mob, true
         end
     end
 
-    -- Última checagem depois do streaming.
-    return self:_findHumanBoss(name)
+    -- Última checagem depois da navegação/streaming.
+    local streamed = self:_findHumanBoss(name)
+    if streamed then
+        return streamed, true
+    end
+
+    -- Continua informando que o spawn está ativo.
+    -- O próximo ciclo reaplica o Tween; não cai no Hop.
+    return nil, true
 end
 
 function Module:_humanAllBossesAvailable()
@@ -1062,16 +1069,24 @@ function Module:_runHuman()
             continue
         end
 
-        local boss = self:_getHumanBoss(bossName)
+        local boss, spawnActive = self:_getHumanBoss(bossName)
 
         if not (boss and isAlive(boss)) then
+            -- Se o spawn está Active, o boss existe neste servidor.
+            -- Não importa se ainda não renderizou: continua no mesmo servidor.
+            if spawnActive then
+                self:_status(
+                    "Race V3 Human | " .. tostring(bossName) .. " ativo",
+                    "Ainda carregando/chegando no spawn | SEM HOP"
+                )
+                return false
+            end
+
             self:_status(
                 "Race V3 Human | Procurando " .. bossName,
-                "Nao esta renderizado nem com spawn ativo neste servidor"
+                "Spawn nao esta ativo neste servidor"
             )
 
-            -- Não dá Hop enquanto o servidor ainda está carregando
-            -- ou logo após uma rejeição da entrega.
             local nowClock = os.clock()
 
             local retryNoHopUntil =
@@ -1098,15 +1113,18 @@ function Module:_runHuman()
                 return false
             end
 
+            -- Hop SOMENTE quando CheckBossSpawn confirmou que o boss
+            -- realmente não está ativo neste servidor.
             if self.Config.HumanHopIfSequenceNotStarted then
                 self:_status(
-                    "Race V3 Human | Boss nao encontrado",
-                    tostring(bossName) .. " | agora pode procurar outro servidor"
+                    "Race V3 Human | Boss indisponivel",
+                    tostring(bossName) .. " sem spawn ativo | procurando servidor"
                 )
 
                 self:_hop(
-                    "Race V3 Human | procurando boss real "
+                    "Race V3 Human | "
                         .. tostring(bossName)
+                        .. " sem spawn ativo"
                 )
             end
 
