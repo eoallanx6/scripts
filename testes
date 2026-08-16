@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "2.1.0"
+Module.Version = "2.2.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -62,6 +62,7 @@ Module.Config = {
 
     HumanHopIfSequenceNotStarted = true,
     HumanWaitAfterBoss = 6,
+    HumanRetryNoHopSeconds = 12,
     HumanFinalWenlockWait = 30,
     HumanForcedDeliveryRetries = 15,
     HumanForcedDeliveryInterval = 0.8,
@@ -106,6 +107,8 @@ Module.State = {
     HumanKilled = {},
     HumanLastDeliveryAt = 0,
     HumanDeliveryRejected = false,
+    HumanRetryNoHopUntil = 0,
+    HumanAttempt = 0,
 
     CurrentRace = nil,
     LastWenlockState = nil,
@@ -796,19 +799,23 @@ function Module:ForceDeliverHumanV3(reason)
     if incompleteOrder then
         self.State.HumanDeliveryRejected = true
 
-        -- Zera SOMENTE as confirmações locais.
-        -- Mantém HumanQuestStarted=true para NÃO chamar Wenlocktoad("1") novamente.
+        -- O servidor rejeitou a tentativa inteira. Começa NOVO ciclo,
+        -- mas sem spam: Wenlocktoad("1") será chamado uma única vez
+        -- no início da próxima tentativa.
         self.State.HumanKilled = {}
         self.State.HumanSequenceStarted = false
+        self.State.HumanQuestStarted = false
+        self.State.HumanRetryNoHopUntil =
+            os.clock() + self.Config.HumanRetryNoHopSeconds
 
         self:_status(
             "Race V3 Human | Servidor rejeitou as kills",
-            "Resetando Diamond/Jeremy/Orbitus e tentando novamente"
+            "Novo ciclo | sem Hop imediato"
         )
 
         warn(
-            "[Allan RaceV3 Human] servidor rejeitou as 3 flags locais; "
-            .. "HumanKilled resetado | Wenlocktoad(1) NAO sera repetido"
+            "[Allan RaceV3 Human] servidor rejeitou a tentativa; "
+            .. "novo ciclo sera iniciado com UM Wenlocktoad(1)"
         )
 
         return false
@@ -884,15 +891,29 @@ function Module:_isInSafeZone(character)
 end
 
 function Module:_findHumanBoss(name)
+    -- HUMAN V3 só pode atacar/contar o NPC REAL do servidor.
+    -- Nunca usa o template em ReplicatedStorage como boss vivo.
     local enemies = Workspace:FindFirstChild("Enemies")
-    local rep = ReplicatedStorage
+    if not enemies then
+        return nil
+    end
 
-    local mob = enemies and enemies:FindFirstChild(name)
-    if mob and isAlive(mob) then return mob end
+    local direct = enemies:FindFirstChild(name)
+    if direct and direct:IsA("Model") and isAlive(direct) then
+        return direct
+    end
 
-    local stored = rep:FindFirstChild(name)
-    if stored and stored:IsA("Model") and isAlive(stored) then
-        return stored
+    -- Alguns updates adicionam level/texto ao nome.
+    local wanted = string.lower(tostring(name))
+    for _, mob in ipairs(enemies:GetChildren()) do
+        if mob:IsA("Model") and isAlive(mob) then
+            local lname = string.lower(tostring(mob.Name or ""))
+            if lname == wanted
+                or string.find(lname, wanted, 1, true)
+            then
+                return mob
+            end
+        end
     end
 
     return nil
@@ -950,32 +971,17 @@ function Module:_runHuman()
     end
 
     if not self.State.HumanSequenceStarted then
-        local all, missing = self:_humanAllBossesAvailable()
+        self.State.HumanSequenceStarted = true
+        self.State.HumanKilled = {}
+        self.State.HumanAttempt =
+            tonumber(self.State.HumanAttempt or 0) + 1
 
-        if all then
-            self.State.HumanSequenceStarted = true
-            self.State.HumanKilled = {}
-
-            self:_status(
-                "Race V3 Human | Sequencia iniciada",
-                "Diamond -> Jeremy -> Orbitus | sem desvio para Wenlock"
-            )
-        else
-            self:_status(
-                "Race V3 Human | Procurando bosses",
-                "Faltando: " .. tostring(missing)
-            )
-
-            if self.Config.HumanHopIfSequenceNotStarted then
-                self:_hop(
-                    "Race V3 Human | faltando "
-                        .. tostring(missing)
-                        .. " antes da sequencia"
-                )
-            end
-
-            return false
-        end
+        self:_status(
+            "Race V3 Human | Sequencia iniciada",
+            "Tentativa "
+                .. tostring(self.State.HumanAttempt)
+                .. " | Diamond -> Jeremy -> Orbitus"
+        )
     end
 
     for _, bossName in ipairs(self.Config.HumanBosses) do
@@ -991,12 +997,26 @@ function Module:_runHuman()
         local boss = self:_findHumanBoss(bossName)
 
         if not (boss and isAlive(boss)) then
-            -- Depois que a sequência começou, ausência não faz o script ir
-            -- para Wenlock. Apenas aguarda/retorna para tentar novamente.
             self:_status(
-                "Race V3 Human | Aguardando " .. bossName,
-                "Sequencia ativa | sem Wenlock e sem entrega intermediaria"
+                "Race V3 Human | Procurando " .. bossName,
+                "Boss real nao esta em workspace.Enemies"
             )
+
+            -- Depois de uma rejeição do servidor, nunca dá Hop imediatamente.
+            local noHopUntil =
+                tonumber(self.State.HumanRetryNoHopUntil or 0)
+
+            if os.clock() < noHopUntil then
+                return false
+            end
+
+            if self.Config.HumanHopIfSequenceNotStarted then
+                self:_hop(
+                    "Race V3 Human | procurando boss real "
+                        .. tostring(bossName)
+                )
+            end
+
             return false
         end
 
@@ -1023,6 +1043,21 @@ function Module:_runHuman()
         local engaged = false
         local attackCalls = 0
         local timedOut = false
+        local sawHealthDecrease = false
+
+        local function ReadBossHealth()
+            if trackedHum then
+                return tonumber(trackedHum.Health)
+            end
+
+            if trackedHealth and trackedHealth:IsA("ValueBase") then
+                return tonumber(trackedHealth.Value)
+            end
+
+            return nil
+        end
+
+        local previousHealth = ReadBossHealth()
 
         while self:_shouldContinue()
             and trackedBoss
@@ -1039,6 +1074,18 @@ function Module:_runHuman()
                     and isAlive(trackedBoss)
             end)
 
+            local currentHealth = ReadBossHealth()
+            if previousHealth
+                and currentHealth
+                and currentHealth < previousHealth
+            then
+                sawHealthDecrease = true
+            end
+
+            if currentHealth then
+                previousHealth = currentHealth
+            end
+
             if now() - started > 120 then
                 timedOut = true
                 break
@@ -1049,7 +1096,11 @@ function Module:_runHuman()
 
         local killedByOurEngagement = false
 
-        if engaged and attackCalls > 0 and not timedOut then
+        if engaged
+            and attackCalls > 0
+            and sawHealthDecrease
+            and not timedOut
+        then
             if trackedHum then
                 killedByOurEngagement = trackedHum.Health <= 0
             elseif trackedHealth and trackedHealth:IsA("ValueBase") then
@@ -1068,7 +1119,7 @@ function Module:_runHuman()
 
             self:_status(
                 "Race V3 Human | Kill nao confirmada",
-                bossName .. " nao contou como nossa kill"
+                bossName .. " | sem dano proprio confirmado ou morte invalida"
             )
             return false
         end
@@ -1756,6 +1807,8 @@ function Module:ResetSession()
     self.State.HumanKilled = {}
     self.State.HumanLastDeliveryAt = 0
     self.State.HumanDeliveryRejected = false
+    self.State.HumanRetryNoHopUntil = 0
+    self.State.HumanAttempt = 0
     self.State.SharkKilledEvent = false
     self.State.SharkBoat = nil
     self.State.LastWenlockState = nil
