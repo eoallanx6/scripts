@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "1.9.0"
+Module.Version = "2.1.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -104,6 +104,8 @@ Module.State = {
     HumanSequenceStarted = false,
     HumanQuestStarted = false,
     HumanKilled = {},
+    HumanLastDeliveryAt = 0,
+    HumanDeliveryRejected = false,
 
     CurrentRace = nil,
     LastWenlockState = nil,
@@ -724,58 +726,100 @@ function Module:ForceDeliverHumanV3(reason)
     if not (self.State.HumanSequenceStarted and allKilled) then
         self:_status(
             "Race V3 Human | Entrega bloqueada",
-            "Ainda nao confirmou as 3 kills"
+            "Ainda nao confirmou as 3 kills locais"
         )
         return false
     end
 
-    self:_status(
-        "Race V3 Human | Finalizando V3",
-        tostring(reason or "Diamond + Jeremy + Orbitus abatidos")
-    )
+    -- Nunca spamma a entrega.
+    local nowClock = os.clock()
+    local last = tonumber(self.State.HumanLastDeliveryAt or 0)
 
-    -- Dá um tempo curto para o servidor registrar a terceira kill.
-    task.wait(1.5)
-
-    -- Wenlocktoad("1") NÃO é mais usado como polling/checagem aqui.
-    -- Pelo capture do Cobalt, "1" é chamado ANTES dos bosses.
-    -- Depois dos 3, tentamos a finalização e confirmamos pela detecção
-    -- robusta do código principal (Adapter.IsV3 / RaceV / skill).
-    for attempt = 1, 8 do
-        if not self:_shouldContinue() then
-            return false
-        end
-
-        if self:IsV3() then
-            self:_status(
-                "Race V3 Human | V3 confirmada",
-                "Deteccao do principal confirmou V3"
-            )
-            return true
-        end
-
+    if nowClock - last < 8 then
         self:_status(
-            "Race V3 Human | Entregando V3",
-            "3 kills confirmadas | Wenlocktoad(3) tentativa "
-                .. tostring(attempt)
+            "Race V3 Human | Aguardando servidor",
+            "Cooldown da entrega"
         )
+        return false
+    end
 
-        self:_invokeWenlock("3", false)
-        task.wait(1)
+    self.State.HumanLastDeliveryAt = nowClock
 
-        if self:IsV3() then
-            self:_status(
-                "Race V3 Human | V3 confirmada",
-                "Deteccao do principal confirmou V3"
-            )
-            return true
-        end
+    if self:IsV3() then
+        self:_status(
+            "Race V3 Human | V3 confirmada",
+            "Deteccao do principal confirmou V3"
+        )
+        return true
     end
 
     self:_status(
-        "Race V3 Human | Entrega pendente",
-        "3 bosses mortos | sem Hop | tentando novamente no proximo ciclo"
+        "Race V3 Human | Validando 3 kills",
+        tostring(reason or "Diamond + Jeremy + Orbitus")
     )
+
+    task.wait(1.2)
+
+    -- UMA tentativa por ciclo. O retorno do servidor e autoritativo.
+    local result = self:_invokeWenlock("3", false)
+    local resultText = string.lower(tostring(result or ""))
+
+    warn(
+        "[Allan RaceV3 Human] validacao servidor Wenlocktoad(3) => "
+            .. tostring(result)
+    )
+
+    task.wait(0.8)
+
+    if self:IsV3() then
+        self.State.HumanDeliveryRejected = false
+
+        self:_status(
+            "Race V3 Human | V3 confirmada",
+            "Servidor aceitou a ordem"
+        )
+        return true
+    end
+
+    -- O servidor informou explicitamente que a ordem nao foi concluida.
+    -- Portanto nossas flags locais NAO sao verdade suficiente.
+    local incompleteOrder =
+        string.find(resultText, "haven't completed my order", 1, true) ~= nil
+        or string.find(resultText, "havent completed my order", 1, true) ~= nil
+        or string.find(resultText, "defeat jeremy", 1, true) ~= nil
+        or (
+            string.find(resultText, "jeremy", 1, true) ~= nil
+            and string.find(resultText, "diamond", 1, true) ~= nil
+            and string.find(resultText, "orbitus", 1, true) ~= nil
+        )
+
+    if incompleteOrder then
+        self.State.HumanDeliveryRejected = true
+
+        -- Zera SOMENTE as confirmações locais.
+        -- Mantém HumanQuestStarted=true para NÃO chamar Wenlocktoad("1") novamente.
+        self.State.HumanKilled = {}
+        self.State.HumanSequenceStarted = false
+
+        self:_status(
+            "Race V3 Human | Servidor rejeitou as kills",
+            "Resetando Diamond/Jeremy/Orbitus e tentando novamente"
+        )
+
+        warn(
+            "[Allan RaceV3 Human] servidor rejeitou as 3 flags locais; "
+            .. "HumanKilled resetado | Wenlocktoad(1) NAO sera repetido"
+        )
+
+        return false
+    end
+
+    -- Qualquer outro retorno: não fica tentando 8 vezes seguidas.
+    self:_status(
+        "Race V3 Human | Entrega pendente",
+        "Servidor nao confirmou V3 | aguardando novo ciclo"
+    )
+
     return false
 end
 
@@ -1039,8 +1083,8 @@ function Module:_runHuman()
         end
 
         self:_status(
-            "Race V3 Human | Kill registrada",
-            bossName .. " | " .. tostring(doneCount) .. "/3"
+            "Race V3 Human | Kill observada localmente",
+            bossName .. " | " .. tostring(doneCount) .. "/3 | aguardando validacao do servidor"
         )
 
         -- IMPORTANTE: não chama Wenlock aqui.
@@ -1051,7 +1095,7 @@ function Module:_runHuman()
 
     if finalAllKilled then
         return self:ForceDeliverHumanV3(
-            "Diamond + Jeremy + Orbitus abatidos por nos"
+            "3 mortes observadas localmente | validando no servidor"
         )
     end
 
@@ -1710,6 +1754,8 @@ function Module:ResetSession()
     self.State.HumanQuestStarted = false
     self.State.HumanQuestStartedAt = nil
     self.State.HumanKilled = {}
+    self.State.HumanLastDeliveryAt = 0
+    self.State.HumanDeliveryRejected = false
     self.State.SharkKilledEvent = false
     self.State.SharkBoat = nil
     self.State.LastWenlockState = nil
