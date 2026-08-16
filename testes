@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "2.3.0"
+Module.Version = "2.4.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -899,8 +899,15 @@ function Module:_isInSafeZone(character)
 end
 
 function Module:_findHumanBoss(name)
-    -- HUMAN V3 só pode atacar/contar o NPC REAL do servidor.
-    -- Nunca usa o template em ReplicatedStorage como boss vivo.
+    -- Usa primeiro o sistema NATIVO do principal, que conhece o formato
+    -- atualizado de workspace.Enemies e faz match parcial.
+    if type(self.Adapter.FindEnemy) == "function" then
+        local ok, mob = pcall(self.Adapter.FindEnemy, name)
+        if ok and mob and isAlive(mob) then
+            return mob
+        end
+    end
+
     local enemies = Workspace:FindFirstChild("Enemies")
     if not enemies then
         return nil
@@ -911,7 +918,6 @@ function Module:_findHumanBoss(name)
         return direct
     end
 
-    -- Alguns updates adicionam level/texto ao nome.
     local wanted = string.lower(tostring(name))
     for _, mob in ipairs(enemies:GetChildren()) do
         if mob:IsA("Model") and isAlive(mob) then
@@ -925,6 +931,49 @@ function Module:_findHumanBoss(name)
     end
 
     return nil
+end
+
+function Module:_getHumanBoss(name)
+    -- 1) Já renderizado.
+    local existing = self:_findHumanBoss(name)
+    if existing then
+        return existing
+    end
+
+    -- 2) O principal consegue saber se o spawn está Active mesmo quando
+    -- o Model ainda não apareceu em workspace.Enemies.
+    local spawnActive = false
+
+    if type(self.Adapter.CheckBossSpawn) == "function" then
+        local ok, result = pcall(self.Adapter.CheckBossSpawn, name)
+        spawnActive = ok and result == true
+    end
+
+    if not spawnActive then
+        return nil
+    end
+
+    self:_status(
+        "Race V3 Human | " .. tostring(name) .. " ativo",
+        "Indo ate o spawn e carregando o boss"
+    )
+
+    -- 3) GetMainEnemy do principal:
+    -- vai ao EnemySpawn, força streaming e espera o Model real aparecer.
+    if type(self.Adapter.GetMainEnemy) == "function" then
+        local ok, mob = pcall(
+            self.Adapter.GetMainEnemy,
+            name,
+            15
+        )
+
+        if ok and mob and isAlive(mob) then
+            return mob
+        end
+    end
+
+    -- Última checagem depois do streaming.
+    return self:_findHumanBoss(name)
 end
 
 function Module:_humanAllBossesAvailable()
@@ -1013,12 +1062,12 @@ function Module:_runHuman()
             continue
         end
 
-        local boss = self:_findHumanBoss(bossName)
+        local boss = self:_getHumanBoss(bossName)
 
         if not (boss and isAlive(boss)) then
             self:_status(
                 "Race V3 Human | Procurando " .. bossName,
-                "Boss real nao esta em workspace.Enemies"
+                "Nao esta renderizado nem com spawn ativo neste servidor"
             )
 
             -- Não dá Hop enquanto o servidor ainda está carregando
