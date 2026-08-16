@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "2.9.0"
+Module.Version = "3.0.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -1073,13 +1073,16 @@ function Module:_findHumanBoss(name)
 end
 
 function Module:_getHumanBoss(name)
-    -- 1) Já renderizado.
+    -- 1) Boss já renderizado.
     local existing = self:_findHumanBoss(name)
     if existing then
         return existing, true
     end
 
-    -- 2) Confirma se o spawn está realmente ativo no servidor.
+    -- 2) Consulta Active apenas como informação.
+    -- NÃO usa Active=false como motivo para Hop antes de visitar o spawn,
+    -- porque nesse jogo alguns bosses só ficam Active/renderizados quando
+    -- o jogador chega perto.
     local spawnActive = false
 
     if type(self.Adapter.CheckBossSpawn) == "function" then
@@ -1087,18 +1090,15 @@ function Module:_getHumanBoss(name)
         spawnActive = ok and result == true
     end
 
-    if not spawnActive then
-        return nil, false
-    end
-
-    -- IMPORTANTE:
-    -- Se spawnActive == true, esse boss EXISTE neste servidor.
-    -- Mesmo que o Model ainda não tenha streamado, NÃO pode dar Hop.
     self:_status(
-        "Race V3 Human | " .. tostring(name) .. " ativo",
-        "Tween ate o spawn | sem Hop enquanto Active"
+        "Race V3 Human | Procurando " .. tostring(name),
+        spawnActive
+            and "Spawn ativo | indo ate ele"
+            or "Indo ao spawn para ativar/carregar o boss"
     )
 
+    -- 3) SEMPRE tenta navegar até o EnemySpawn correspondente.
+    -- GetMainEnemy agora aceita spawn mesmo com Active=false.
     if type(self.Adapter.GetMainEnemy) == "function" then
         local ok, mob = pcall(
             self.Adapter.GetMainEnemy,
@@ -1111,15 +1111,14 @@ function Module:_getHumanBoss(name)
         end
     end
 
-    -- Última checagem depois da navegação/streaming.
+    -- 4) Última checagem depois de ter ido fisicamente ao spawn.
     local streamed = self:_findHumanBoss(name)
     if streamed then
         return streamed, true
     end
 
-    -- Continua informando que o spawn está ativo.
-    -- O próximo ciclo reaplica o Tween; não cai no Hop.
-    return nil, true
+    -- Só agora o chamador pode considerar que esse servidor não serviu.
+    return nil, false
 end
 
 function Module:_humanAllBossesAvailable()
