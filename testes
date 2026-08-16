@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "2.2.0"
+Module.Version = "2.3.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -63,6 +63,7 @@ Module.Config = {
     HumanHopIfSequenceNotStarted = true,
     HumanWaitAfterBoss = 6,
     HumanRetryNoHopSeconds = 12,
+    HumanServerLoadGrace = 18,
     HumanFinalWenlockWait = 30,
     HumanForcedDeliveryRetries = 15,
     HumanForcedDeliveryInterval = 0.8,
@@ -109,6 +110,7 @@ Module.State = {
     HumanDeliveryRejected = false,
     HumanRetryNoHopUntil = 0,
     HumanAttempt = 0,
+    HumanServerGraceUntil = 0,
 
     CurrentRace = nil,
     LastWenlockState = nil,
@@ -808,6 +810,12 @@ function Module:ForceDeliverHumanV3(reason)
         self.State.HumanRetryNoHopUntil =
             os.clock() + self.Config.HumanRetryNoHopSeconds
 
+        self.State.HumanServerGraceUntil =
+            math.max(
+                tonumber(self.State.HumanServerGraceUntil or 0),
+                os.clock() + self.Config.HumanRetryNoHopSeconds
+            )
+
         self:_status(
             "Race V3 Human | Servidor rejeitou as kills",
             "Novo ciclo | sem Hop imediato"
@@ -959,6 +967,17 @@ function Module:_runHuman()
 
         self.State.HumanQuestStarted = true
         self.State.HumanQuestStartedAt = os.clock()
+
+        -- Ao entrar/iniciar em um servidor novo, dá tempo para mapa,
+        -- Enemies e bosses streamarem antes de decidir por Hop.
+        self.State.HumanServerGraceUntil =
+            os.clock() + self.Config.HumanServerLoadGrace
+
+        self:_status(
+            "Race V3 Human | Aguardando servidor",
+            "Carregando bosses antes de permitir Hop"
+        )
+
         task.wait(1)
     end
 
@@ -1002,15 +1021,40 @@ function Module:_runHuman()
                 "Boss real nao esta em workspace.Enemies"
             )
 
-            -- Depois de uma rejeição do servidor, nunca dá Hop imediatamente.
-            local noHopUntil =
+            -- Não dá Hop enquanto o servidor ainda está carregando
+            -- ou logo após uma rejeição da entrega.
+            local nowClock = os.clock()
+
+            local retryNoHopUntil =
                 tonumber(self.State.HumanRetryNoHopUntil or 0)
 
-            if os.clock() < noHopUntil then
+            local serverGraceUntil =
+                tonumber(self.State.HumanServerGraceUntil or 0)
+
+            local blockedUntil = math.max(
+                retryNoHopUntil,
+                serverGraceUntil
+            )
+
+            if nowClock < blockedUntil then
+                local left = math.max(0, math.ceil(blockedUntil - nowClock))
+
+                self:_status(
+                    "Race V3 Human | Aguardando " .. bossName,
+                    "Servidor carregando | Hop liberado em "
+                        .. tostring(left)
+                        .. "s"
+                )
+
                 return false
             end
 
             if self.Config.HumanHopIfSequenceNotStarted then
+                self:_status(
+                    "Race V3 Human | Boss nao encontrado",
+                    tostring(bossName) .. " | agora pode procurar outro servidor"
+                )
+
                 self:_hop(
                     "Race V3 Human | procurando boss real "
                         .. tostring(bossName)
@@ -1809,6 +1853,7 @@ function Module:ResetSession()
     self.State.HumanDeliveryRejected = false
     self.State.HumanRetryNoHopUntil = 0
     self.State.HumanAttempt = 0
+    self.State.HumanServerGraceUntil = 0
     self.State.SharkKilledEvent = false
     self.State.SharkBoat = nil
     self.State.LastWenlockState = nil
