@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "1.8.0"
+Module.Version = "1.9.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -673,12 +673,10 @@ function Module:IsV3()
         end
     end
 
-    -- No Sea 2, -2 e a confirmacao usada pelo proprio hub.
-    local state = self:WenlockState()
-    if state == -2 then
-        return true
-    end
-
+    -- IMPORTANTE:
+    -- Nao usa Wenlocktoad("1") para checar V3.
+    -- Na Human esse remote e reservado SOMENTE para iniciar a missao
+    -- uma vez antes de Diamond -> Jeremy -> Orbitus.
     return false
 end
 
@@ -883,19 +881,19 @@ function Module:_runHuman()
     if not self.State.HumanQuestStarted then
         self:_status(
             "Race V3 Human | Iniciando missao",
-            "Chamando Wenlocktoad(1) uma vez antes dos bosses"
+            "Wenlocktoad(1) unico antes dos 3 bosses"
         )
 
+        -- UNICA chamada Wenlocktoad("1") permitida no fluxo Human.
         local result = self:_invokeWenlock("1", false)
 
         warn(
-            "[Allan RaceV3 Human] Wenlocktoad(1) pre-boss => "
+            "[Allan RaceV3 Human] Wenlocktoad(1) PRE-BOSS UNICO => "
                 .. tostring(result)
         )
 
-        -- Mesmo retornando nil, o InvokeServer foi executado e pode registrar
-        -- a quest no servidor. Nao repetir enquanto a sequencia estiver ativa.
         self.State.HumanQuestStarted = true
+        self.State.HumanQuestStartedAt = os.clock()
         task.wait(1)
     end
 
@@ -1710,6 +1708,7 @@ end
 function Module:ResetSession()
     self.State.HumanSequenceStarted = false
     self.State.HumanQuestStarted = false
+    self.State.HumanQuestStartedAt = nil
     self.State.HumanKilled = {}
     self.State.SharkKilledEvent = false
     self.State.SharkBoat = nil
