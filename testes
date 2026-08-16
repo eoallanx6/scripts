@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "2.6.0"
+Module.Version = "2.9.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -90,7 +90,15 @@ Module.Config = {
     DeliveryRetries = 12,
 
     WenlockReachDistance = 12,
-    WenlockApproachTimeout = 25,
+    WenlockApproachTimeout = 35,
+
+    -- Posição fixa do Arowe/Wenlocktoad (Sea 2)
+    WenlockFixedCFrame = CFrame.new(
+        -1983.38696, 119.705765, -69.927536,
+        -0.984812617, 0, 0.173621148,
+        0, 1, 0,
+        -0.173621148, 0, -0.984812617
+    ),
     WenlockDeliveryDelay = 0.75,
 
     -- O jogo atual pode retornar nil no Wenlocktoad("1").
@@ -143,6 +151,62 @@ local function getHumanoid(model)
     return model:FindFirstChildOfClass("Humanoid") or model:FindFirstChild("Humanoid")
 end
 
+local function readHealthObject(obj)
+    if not obj then
+        return nil
+    end
+
+    if obj:IsA("Humanoid") then
+        return tonumber(obj.Health)
+    end
+
+    if obj:IsA("ValueBase") then
+        return tonumber(obj.Value)
+    end
+
+    return nil
+end
+
+local function readModelHealth(model)
+    if not model then
+        return nil
+    end
+
+    local hum = getHumanoid(model)
+    local value = readHealthObject(hum)
+
+    if value ~= nil then
+        return value
+    end
+
+    local health = model:FindFirstChild("Health")
+    value = readHealthObject(health)
+
+    if value ~= nil then
+        return value
+    end
+
+    return nil
+end
+
+local function readModelMaxHealth(model)
+    if not model then
+        return nil
+    end
+
+    local hum = getHumanoid(model)
+    if hum and hum:IsA("Humanoid") then
+        return tonumber(hum.MaxHealth)
+    end
+
+    local maxHealth = model:FindFirstChild("MaxHealth")
+    if maxHealth and maxHealth:IsA("ValueBase") then
+        return tonumber(maxHealth.Value)
+    end
+
+    return nil
+end
+
 local function getRoot(model)
     if not model then return nil end
     if model:IsA("Player") then
@@ -157,16 +221,13 @@ local function getRoot(model)
 end
 
 local function isAlive(model)
-    if not model or not model.Parent then return false end
-
-    local hum = getHumanoid(model)
-    if hum then
-        return hum.Health > 0
+    if not model or not model.Parent then
+        return false
     end
 
-    local health = model:FindFirstChild("Health")
-    if health and health:IsA("ValueBase") then
-        return tonumber(health.Value) and health.Value > 0
+    local hp = readModelHealth(model)
+    if hp ~= nil then
+        return hp > 0
     end
 
     return getRoot(model) ~= nil
@@ -174,8 +235,12 @@ end
 
 local function localAlive()
     local char = getCharacter()
-    local hum = getHumanoid(char)
-    return char ~= nil and hum ~= nil and hum.Health > 0
+    if not char then
+        return false
+    end
+
+    local hp = readModelHealth(char)
+    return hp ~= nil and hp > 0
 end
 
 local function distance(a, b)
@@ -548,68 +613,89 @@ end
 function Module:_goToWenlock(label)
     label = tostring(label or "Arowe/Wenlocktoad")
 
-    -- Race V3: ida ao NPC é SEMPRE somente Tween.
-    if type(self.Adapter.SetSSSBlocked) == "function" then
-        pcall(self.Adapter.SetSSSBlocked, "RaceV3WenlockTweenOnly", true)
-    end
-
-    local function Finish(result)
-        if type(self.Adapter.SetSSSBlocked) == "function" then
-            pcall(
-                self.Adapter.SetSSSBlocked,
-                "RaceV3WenlockTweenOnly",
-                false
-            )
-        end
-        return result
-    end
-
     local started = now()
     local lastTween = 0
+    local lastStream = 0
+    local triedSSS = false
+    local fixedCF = self.Config.WenlockFixedCFrame
 
     while self:_shouldContinue()
         and now() - started < self.Config.WenlockApproachTimeout
     do
         local npc, root = self:_findWenlockNPC()
-
-        if not root then
-            self:_status(
-                "Race V3 Human | " .. label,
-                "Procurando Arowe/Wenlocktoad..."
-            )
-            task.wait(0.2)
-            continue
-        end
-
         local myRoot = getRoot(getCharacter())
+
         if not myRoot then
             task.wait(0.1)
             continue
         end
 
-        local distance = (myRoot.Position - root.Position).Magnitude
+        local targetCF = root
+            and (root.CFrame * CFrame.new(0, 0, 4))
+            or (fixedCF * CFrame.new(0, 0, 4))
+
+        local targetPos = root
+            and root.Position
+            or fixedCF.Position
+
+        local distance = (myRoot.Position - targetPos).Magnitude
 
         self:_status(
             "Race V3 Human | " .. label,
-            "Indo ate "
-                .. tostring(npc and npc.Name or "Arowe")
+            (root and "Indo ate Arowe" or "Indo ao local fixo do Arowe")
                 .. " | "
                 .. tostring(math.floor(distance))
                 .. " studs"
         )
+
+        -- Agora TP Reset/SSS está LIBERADO para acelerar viagens longas.
+        -- Tenta uma vez por ida; depois termina a aproximação por Tween.
+        if not triedSSS
+            and distance > 1200
+            and type(self.Adapter.SSS) == "function"
+        then
+            triedSSS = true
+
+            self:_status(
+                "Race V3 Human | " .. label,
+                "TP Reset para aproximar do Arowe"
+            )
+
+            pcall(
+                self.Adapter.SSS,
+                targetPos,
+                function()
+                    return self:_shouldContinue()
+                end
+            )
+
+            task.wait(1)
+            continue
+        end
 
         if distance <= self.Config.WenlockReachDistance then
             self:_status(
                 "Race V3 Human | " .. label,
                 "Perto do NPC | pronto para interagir"
             )
-            return Finish(true)
+            return true
         end
 
-        -- Reaplica Tween para impedir que outro movimento deixe parado.
         if now() - lastTween >= 0.25 then
             lastTween = now()
-            self:_moveTo(root.CFrame * CFrame.new(0, 0, 4))
+            self:_moveTo(targetCF)
+        end
+
+        if now() - lastStream >= 0.75 then
+            lastStream = now()
+
+            if type(self.Adapter.RequestStream) == "function" then
+                pcall(
+                    self.Adapter.RequestStream,
+                    targetPos,
+                    2500
+                )
+            end
         end
 
         task.wait(0.1)
@@ -617,10 +703,10 @@ function Module:_goToWenlock(label)
 
     self:_status(
         "Race V3 Human | " .. label,
-        "Nao conseguiu chegar no NPC | remote NAO sera chamado"
+        "Nao conseguiu chegar no Arowe | remote NAO sera chamado"
     )
 
-    return Finish(false)
+    return false
 end
 
 function Module:_invokeWenlock(action, requireNear)
@@ -845,7 +931,7 @@ function Module:ForceDeliverHumanV3(reason)
         self.State.HumanDeliveryRejected = true
 
         -- O servidor rejeitou a tentativa inteira. Começa NOVO ciclo,
-        -- mas sem spam: Wenlocktoad("1") será chamado uma única vez
+        -- mas sem spam: Wenlocktoad("2") será chamado uma única vez
         -- no início da próxima tentativa.
         self.State.HumanKilled = {}
         self.State.HumanSequenceStarted = false
@@ -866,7 +952,7 @@ function Module:ForceDeliverHumanV3(reason)
 
         warn(
             "[Allan RaceV3 Human] servidor rejeitou a tentativa; "
-            .. "novo ciclo sera iniciado com UM Wenlocktoad(1)"
+            .. "novo ciclo sera iniciado com UM Wenlocktoad(2)"
         )
 
         return false
@@ -926,13 +1012,23 @@ function Module:_isInSafeZone(character)
     local zones = origin and origin:FindFirstChild("SafeZones")
     if not zones then return false end
 
-    local hum = getHumanoid(character)
     local root = getRoot(character)
-    if not hum or not root then return true end
+    local hp = readModelHealth(character)
+    local maxHp = readModelMaxHealth(character)
+
+    if not root then
+        return true
+    end
 
     for _, zone in ipairs(zones:GetChildren()) do
-        if zone:IsA("BasePart") and (zone.Position - root.Position).Magnitude <= 400 then
-            if hum.Health >= hum.MaxHealth * 0.80 then
+        if zone:IsA("BasePart")
+            and (zone.Position - root.Position).Magnitude <= 400
+        then
+            if hp and maxHp and maxHp > 0 then
+                if hp >= maxHp * 0.80 then
+                    return true
+                end
+            else
                 return true
             end
         end
@@ -1063,14 +1159,14 @@ function Module:_runHuman()
 
         self:_status(
             "Race V3 Human | Iniciando missao",
-            "Perto do NPC | chamando Wenlocktoad(1)"
+            "Pegando quest | chamando Wenlocktoad(2)"
         )
 
-        -- UNICA chamada Wenlocktoad("1") permitida antes dos bosses.
-        local result = self:_invokeWenlock("1", false)
+        -- Wenlocktoad("2") pega/inicia a quest da Race V3.
+        local result = self:_invokeWenlock("2", false)
 
         warn(
-            "[Allan RaceV3 Human] Wenlocktoad(1) PRE-BOSS UNICO => "
+            "[Allan RaceV3 Human] Wenlocktoad(2) PEGAR QUEST => "
                 .. tostring(result)
         )
 
@@ -1197,12 +1293,33 @@ function Module:_runHuman()
 
         local root = getRoot(boss)
         if root then
-            self:_sss(root.Position)
+            local myRoot = getRoot(getCharacter())
+            local distance = myRoot
+                and (myRoot.Position - root.Position).Magnitude
+                or 0
+
+            -- Race V3: usa TP Reset/SSS em viagem longa e termina por Tween.
+            if distance > 1200 and type(self.Adapter.SSS) == "function" then
+                self:_status(
+                    "Race V3 Human | " .. tostring(bossName),
+                    "TP Reset para aproximar do boss"
+                )
+
+                pcall(
+                    self.Adapter.SSS,
+                    root.Position,
+                    function()
+                        return self:_shouldContinue()
+                    end
+                )
+
+                task.wait(0.8)
+            end
+
+            self:_moveTo(root.CFrame * CFrame.new(0, 8, 8))
         end
 
         local trackedBoss = boss
-        local trackedHum = getHumanoid(trackedBoss)
-        local trackedHealth = trackedBoss:FindFirstChild("Health")
         local started = now()
         local engaged = false
         local attackCalls = 0
@@ -1210,15 +1327,7 @@ function Module:_runHuman()
         local sawHealthDecrease = false
 
         local function ReadBossHealth()
-            if trackedHum then
-                return tonumber(trackedHum.Health)
-            end
-
-            if trackedHealth and trackedHealth:IsA("ValueBase") then
-                return tonumber(trackedHealth.Value)
-            end
-
-            return nil
+            return readModelHealth(trackedBoss)
         end
 
         local previousHealth = ReadBossHealth()
@@ -1265,12 +1374,10 @@ function Module:_runHuman()
             and sawHealthDecrease
             and not timedOut
         then
-            if trackedHum then
-                killedByOurEngagement = trackedHum.Health <= 0
-            elseif trackedHealth and trackedHealth:IsA("ValueBase") then
-                killedByOurEngagement =
-                    tonumber(trackedHealth.Value) ~= nil
-                    and trackedHealth.Value <= 0
+            local finalHealth = ReadBossHealth()
+
+            if finalHealth ~= nil then
+                killedByOurEngagement = finalHealth <= 0
             else
                 killedByOurEngagement =
                     trackedBoss.Parent == nil
