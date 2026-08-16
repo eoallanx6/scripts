@@ -54,7 +54,7 @@ local Remotes = ReplicatedStorage:WaitForChild("Remotes")
 local CommF = Remotes:WaitForChild("CommF_")
 local CommE = Remotes:FindFirstChild("CommE")
 
-Module.Version = "2.5.0"
+Module.Version = "2.6.0"
 
 Module.Config = {
     -- ATUALIZADO pelo Allan: os tres bosses atuais da Human V3.
@@ -545,50 +545,82 @@ function Module:_findWenlockNPC()
     return nil, nil
 end
 
-function Module:_goToWenlock()
-    if type(self.Adapter.GoToWenlock) == "function" then
-        local ok, result = pcall(self.Adapter.GoToWenlock)
-        if ok and result ~= false then
-            return true
-        end
+function Module:_goToWenlock(label)
+    label = tostring(label or "Arowe/Wenlocktoad")
+
+    -- Race V3: ida ao NPC é SEMPRE somente Tween.
+    if type(self.Adapter.SetSSSBlocked) == "function" then
+        pcall(self.Adapter.SetSSSBlocked, "RaceV3WenlockTweenOnly", true)
     end
 
-    local npc, root = self:_findWenlockNPC()
+    local function Finish(result)
+        if type(self.Adapter.SetSSSBlocked) == "function" then
+            pcall(
+                self.Adapter.SetSSSBlocked,
+                "RaceV3WenlockTweenOnly",
+                false
+            )
+        end
+        return result
+    end
 
-    if not root then
-        self:_status("Race V3 | Wenlocktoad", "Arowe/Wenlock nao carregado")
-        return false
+    local started = now()
+    local lastTween = 0
+
+    while self:_shouldContinue()
+        and now() - started < self.Config.WenlockApproachTimeout
+    do
+        local npc, root = self:_findWenlockNPC()
+
+        if not root then
+            self:_status(
+                "Race V3 Human | " .. label,
+                "Procurando Arowe/Wenlocktoad..."
+            )
+            task.wait(0.2)
+            continue
+        end
+
+        local myRoot = getRoot(getCharacter())
+        if not myRoot then
+            task.wait(0.1)
+            continue
+        end
+
+        local distance = (myRoot.Position - root.Position).Magnitude
+
+        self:_status(
+            "Race V3 Human | " .. label,
+            "Indo ate "
+                .. tostring(npc and npc.Name or "Arowe")
+                .. " | "
+                .. tostring(math.floor(distance))
+                .. " studs"
+        )
+
+        if distance <= self.Config.WenlockReachDistance then
+            self:_status(
+                "Race V3 Human | " .. label,
+                "Perto do NPC | pronto para interagir"
+            )
+            return Finish(true)
+        end
+
+        -- Reaplica Tween para impedir que outro movimento deixe parado.
+        if now() - lastTween >= 0.25 then
+            lastTween = now()
+            self:_moveTo(root.CFrame * CFrame.new(0, 0, 4))
+        end
+
+        task.wait(0.1)
     end
 
     self:_status(
-        "Race V3 | Wenlocktoad",
-        "Indo ate " .. tostring(npc and npc.Name or "Arowe")
+        "Race V3 Human | " .. label,
+        "Nao conseguiu chegar no NPC | remote NAO sera chamado"
     )
 
-    local started = now()
-    while self:_shouldContinue()
-        and root
-        and root.Parent
-        and now() - started < self.Config.WenlockApproachTimeout
-    do
-        local myRoot = getRoot(getCharacter())
-        if myRoot
-            and (myRoot.Position - root.Position).Magnitude
-                <= self.Config.WenlockReachDistance
-        then
-            return true
-        end
-
-        self:_moveTo(root.CFrame * CFrame.new(0, 0, 4))
-        task.wait(0.15)
-    end
-
-    local myRoot = getRoot(getCharacter())
-    return myRoot ~= nil
-        and root ~= nil
-        and root.Parent ~= nil
-        and (myRoot.Position - root.Position).Magnitude
-            <= self.Config.WenlockReachDistance + 5
+    return Finish(false)
 end
 
 function Module:_invokeWenlock(action, requireNear)
@@ -759,13 +791,24 @@ function Module:ForceDeliverHumanV3(reason)
     end
 
     self:_status(
-        "Race V3 Human | Validando 3 kills",
+        "Race V3 Human | 3 bosses abatidos",
+        "Voltando ate Arowe/Wenlocktoad para entregar"
+    )
+
+    -- Depois das 3 kills, volta fisicamente ao NPC.
+    -- Se não chegar, NÃO chama Wenlocktoad("3").
+    if not self:_goToWenlock("Entregar quest") then
+        return false
+    end
+
+    self:_status(
+        "Race V3 Human | Entregando quest",
         tostring(reason or "Diamond + Jeremy + Orbitus")
     )
 
-    task.wait(1.2)
+    task.wait(0.5)
 
-    -- UMA tentativa por ciclo. O retorno do servidor e autoritativo.
+    -- UMA tentativa por ciclo, somente ao lado do NPC.
     local result = self:_invokeWenlock("3", false)
     local resultText = string.lower(tostring(result or ""))
 
@@ -1010,10 +1053,20 @@ function Module:_runHuman()
     if not self.State.HumanQuestStarted then
         self:_status(
             "Race V3 Human | Iniciando missao",
-            "Wenlocktoad(1) unico antes dos 3 bosses"
+            "Primeiro indo ate Arowe/Wenlocktoad"
         )
 
-        -- UNICA chamada Wenlocktoad("1") permitida no fluxo Human.
+        -- O remote de início só é chamado estando fisicamente perto do NPC.
+        if not self:_goToWenlock("Iniciar quest") then
+            return false
+        end
+
+        self:_status(
+            "Race V3 Human | Iniciando missao",
+            "Perto do NPC | chamando Wenlocktoad(1)"
+        )
+
+        -- UNICA chamada Wenlocktoad("1") permitida antes dos bosses.
         local result = self:_invokeWenlock("1", false)
 
         warn(
